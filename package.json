@@ -1,8 +1,11 @@
 {
   "name": "humanizer-z12",
+  "version": "2.1.0",
   "private": true,
-  "version": "0.0.0",
+  "description": "Advanced AI text humanization system with stylometric analysis and interactive editing",
   "type": "module",
+  "author": "zakibelm",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
