@@ -13,6 +13,41 @@ export interface StyleCategory {
   description: string;
   documents: Document[];
   keywords: string[];
+  stylometricProfile?: StylometricProfile; // Profil stylométrique calculé
+}
+
+export interface StylometricProfile {
+  typeTokenRatio: number;
+  averageWordLength: number;
+  hapaxLegomenaRatio: number;
+  yulesK: number;
+  sentenceStats: {
+    mean: number;
+    median: number;
+    stdDev: number;
+    min: number;
+    max: number;
+    shortSentences: number;
+    longSentences: number;
+  };
+  punctuationProfile: {
+    commaRatio: number;
+    semicolonRatio: number;
+    dashRatio: number;
+    questionRatio: number;
+    exclamationRatio: number;
+    diversityScore: number;
+  };
+  readability: {
+    fleschScore: number;
+    averageSyllables: number;
+  };
+  patterns: {
+    contractionRatio: number;
+    startWithConjunction: number;
+    questionSentences: number;
+    passiveVoiceRatio: number;
+  };
 }
 
 export interface StyleDistribution {
@@ -37,4 +72,8 @@ export interface AnalysisResult {
     analysis: string;
   };
   flaggedSentences: string[];
+  stylometricMatch?: {
+    similarity: number; // 0-100
+    deviations: string[]; // Liste des écarts significatifs
+  };
 }

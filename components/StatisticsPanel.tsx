@@ -5,6 +5,7 @@ import ZapIcon from './icons/ZapIcon';
 import BarChartIcon from './icons/BarChartIcon';
 import ExternalLinkIcon from './icons/ExternalLinkIcon';
 import ScoreGauge from './ScoreGauge';
+import StylometricPanel from './StylometricPanel';
 
 const getRiskConfig = (score: number) => {
     if (score > 70) return {
@@ -94,6 +95,13 @@ const StatisticsPanel: React.FC<{ analysis: AnalysisResult; outputText: string }
                     ))}
                 </ul>
             </div>
+        )}
+
+        {analysis.stylometricMatch && (
+            <StylometricPanel
+                similarity={analysis.stylometricMatch.similarity}
+                deviations={analysis.stylometricMatch.deviations}
+            />
         )}
     </div>
   );
