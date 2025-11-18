@@ -1,0 +1,137 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Humanizer Z12</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&family=Source+Serif+4:opsz,wght@8..60,400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        --background: oklch(0.9824 0.0013 286.3757);
+        --foreground: oklch(0.3211 0 0);
+        --card: oklch(1.0000 0 0);
+        --card-foreground: oklch(0.3211 0 0);
+        --popover: oklch(1.0000 0 0);
+        --popover-foreground: oklch(0.3211 0 0);
+        --primary: oklch(0.6487 0.1538 150.3071);
+        --primary-foreground: oklch(1.0000 0 0);
+        --secondary: oklch(0.6746 0.1414 261.3380);
+        --secondary-foreground: oklch(1.0000 0 0);
+        --muted: oklch(0.8828 0.0285 98.1033);
+        --muted-foreground: oklch(0.5382 0 0);
+        --accent: oklch(0.8269 0.1080 211.9627);
+        --accent-foreground: oklch(0.3211 0 0);
+        --destructive: oklch(0.6368 0.2078 25.3313);
+        --destructive-foreground: oklch(1.0000 0 0);
+        --border: oklch(0.8699 0 0);
+        --input: oklch(0.8699 0 0);
+        --ring: oklch(0.6487 0.1538 150.3071);
+        --font-sans: 'Plus Jakarta Sans', sans-serif;
+        --font-serif: 'Source Serif 4', serif;
+        --radius: 0.5rem;
+      }
+
+      .dark {
+        --background: oklch(0.2303 0.0125 264.2926);
+        --foreground: oklch(0.9219 0 0);
+        --card: oklch(0.3210 0.0078 223.6661);
+        --card-foreground: oklch(0.9219 0 0);
+        --popover: oklch(0.3210 0.0078 223.6661);
+        --popover-foreground: oklch(0.9219 0 0);
+        --primary: oklch(0.6487 0.1538 150.3071);
+        --primary-foreground: oklch(1.0000 0 0);
+        --secondary: oklch(0.5880 0.0993 245.7394);
+        --secondary-foreground: oklch(0.9219 0 0);
+        --muted: oklch(0.3867 0 0);
+        --muted-foreground: oklch(0.7155 0 0);
+        --accent: oklch(0.6746 0.1414 261.3380);
+        --accent-foreground: oklch(0.9219 0 0);
+        --destructive: oklch(0.6368 0.2078 25.3313);
+        --destructive-foreground: oklch(1.0000 0 0);
+        --border: oklch(0.3867 0 0);
+        --input: oklch(0.3867 0 0);
+        --ring: oklch(0.6487 0.1538 150.3071);
+      }
+    </style>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              border: 'var(--border)',
+              input: 'var(--input)',
+              ring: 'var(--ring)',
+              background: 'var(--background)',
+              foreground: 'var(--foreground)',
+              primary: {
+                DEFAULT: 'var(--primary)',
+                foreground: 'var(--primary-foreground)',
+              },
+              secondary: {
+                DEFAULT: 'var(--secondary)',
+                foreground: 'var(--secondary-foreground)',
+              },
+              destructive: {
+                DEFAULT: 'var(--destructive)',
+                foreground: 'var(--destructive-foreground)',
+              },
+              muted: {
+                DEFAULT: 'var(--muted)',
+                foreground: 'var(--muted-foreground)',
+              },
+              accent: {
+                DEFAULT: 'var(--accent)',
+                foreground: 'var(--accent-foreground)',
+              },
+              popover: {
+                DEFAULT: 'var(--popover)',
+                foreground: 'var(--popover-foreground)',
+              },
+              card: {
+                DEFAULT: 'var(--card)',
+                foreground: 'var(--card-foreground)',
+              },
+            },
+            borderRadius: {
+              lg: `var(--radius)`,
+              md: `calc(var(--radius) - 2px)`,
+              sm: `calc(var(--radius) - 4px)`
+            },
+            fontFamily: {
+              sans: ['var(--font-sans)', 'sans-serif'],
+              serif: ['var(--font-serif)', 'serif'],
+            },
+            keyframes: {
+              'fade-in': {
+                  '0%': { opacity: '0', transform: 'translateY(-10px)' },
+                  '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+            },
+            animation: {
+                'fade-in': 'fade-in 0.5s ease-in-out forwards',
+            },
+          },
+        },
+      }
+    </script>
+    <script type="importmap">
+      {
+        "imports": {
+          "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+          "@google/genai": "https://aistudiocdn.com/@google/genai@^1.29.1",
+          "react": "https://aistudiocdn.com/react@^19.2.0",
+          "react/": "https://aistudiocdn.com/react@^19.2.0/"
+        }
+      }
+    </script>
+  </head>
+  <body class="dark bg-background text-foreground font-sans">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
