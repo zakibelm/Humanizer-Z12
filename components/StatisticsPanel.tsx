@@ -5,6 +5,7 @@ import ZapIcon from './icons/ZapIcon';
 import BarChartIcon from './icons/BarChartIcon';
 import ExternalLinkIcon from './icons/ExternalLinkIcon';
 import ScoreGauge from './ScoreGauge';
+import StylometricPanel from './StylometricPanel';
 
 const getRiskConfig = (score: number) => {
     if (score > 70) return {
@@ -83,9 +84,18 @@ const StatisticsPanel: React.FC<{ analysis: AnalysisResult; outputText: string }
             </div>
         </div>
 
+        {analysis.stylometricMatch && (
+             <div className="mt-4 border-t border-border pt-4">
+                <StylometricPanel
+                    similarity={analysis.stylometricMatch.similarity}
+                    deviations={analysis.stylometricMatch.deviations}
+                />
+            </div>
+        )}
+
         {analysis.flaggedSentences && analysis.flaggedSentences.length > 0 && (
             <div className="mt-4 border-t border-border pt-4">
-                <h4 className="text-sm font-medium text-muted-foreground mb-2">Points de Vigilance à Améliorer :</h4>
+                <h4 className="text-sm font-medium text-muted-foreground mb-2">Phrases à Risque Identifiées :</h4>
                 <ul className="space-y-2">
                     {analysis.flaggedSentences.map((sentence, index) => (
                         <li key={index} className="text-xs text-foreground/80 bg-muted/40 p-2 rounded-md border-l-2 border-yellow-500/50">

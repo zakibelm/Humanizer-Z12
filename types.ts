@@ -6,6 +6,7 @@ export interface Document {
 }
 
 export type StyleCategoryId = 'user' | 'journalistic' | 'academic' | 'conversational' | 'creative';
+export type ModelId = 'gemini-2.5-pro' | 'gemini-2.5-flash';
 
 export interface StyleCategory {
   id: StyleCategoryId;
@@ -23,6 +24,20 @@ export interface StyleDistribution {
   creative: number;
 }
 
+export interface StylometricProfile {
+  typeTokenRatio: number;
+  averageWordLength: number;
+  sentenceLengthMean: number;
+  sentenceLengthStdDev: number;
+  punctuationProfile: Record<string, number>;
+  fleschReadingEase: number;
+}
+
+export interface StylometricMatch {
+  similarity: number; // 0-100%
+  deviations: string[];
+}
+
 export interface AnalysisResult {
   detectionRisk: {
     level: 'Faible' | 'Modéré' | 'Élevé';
@@ -37,4 +52,5 @@ export interface AnalysisResult {
     analysis: string;
   };
   flaggedSentences: string[];
+  stylometricMatch?: StylometricMatch;
 }
