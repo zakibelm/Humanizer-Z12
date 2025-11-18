@@ -5,7 +5,7 @@ import ConfigurationPanel from './components/ConfigurationPanel';
 import GenerationEngine from './components/GenerationEngine';
 import { INITIAL_STYLES, INITIAL_DISTRIBUTION } from './constants';
 import { StyleCategory, StyleDistribution, AnalysisResult } from './types';
-import { generateHumanizedText, refineHumanizedText } from './services/geminiService';
+import { generateHumanizedText, refineHumanizedText, analyzeExistingText } from './services/geminiService';
 
 const App: React.FC = () => {
   const [styles, setStyles] = useState<StyleCategory[]>(INITIAL_STYLES);
@@ -37,12 +37,22 @@ const App: React.FC = () => {
 
     setIsRefining(true);
     const result = await refineHumanizedText(outputText, analysisResult.flaggedSentences);
-    
+
     setOutputText(result.text);
     setAnalysisResult(result.analysis);
     setIsRefining(false);
   }, [outputText, analysisResult]);
 
+  const handleReanalyze = useCallback(async () => {
+    if (!outputText) return;
+
+    setIsRefining(true);
+    const result = await analyzeExistingText(outputText);
+
+    // On ne change pas le texte, seulement l'analyse
+    setAnalysisResult(result.analysis);
+    setIsRefining(false);
+  }, [outputText]);
 
   const gridTemplateColumns = useMemo(() => {
     const leftCol = isStyleLibraryOpen ? 'minmax(320px, 1fr)' : '56px';
@@ -75,14 +85,16 @@ const App: React.FC = () => {
           isOpen={isStyleLibraryOpen}
           onToggle={() => setIsStyleLibraryOpen(prev => !prev)}
         />
-        <GenerationEngine 
+        <GenerationEngine
           inputText={inputText}
           setInputText={setInputText}
           outputText={outputText}
+          setOutputText={setOutputText}
           isLoading={isLoading}
           isRefining={isRefining}
           handleGenerate={handleGenerate}
           handleRefine={handleRefine}
+          handleReanalyze={handleReanalyze}
           analysisResult={analysisResult}
         />
         <ConfigurationPanel 

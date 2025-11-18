@@ -284,3 +284,41 @@ export const refineHumanizedText = async (
     const refinePrompt = constructRefinePrompt(textToRefine, flaggedSentences);
     return callGemini(refinePrompt);
 }
+
+/**
+ * Analyse un texte existant sans le modifier
+ * Retourne seulement l'analyse de risque
+ */
+export const analyzeExistingText = async (
+    text: string,
+    targetProfile?: StylometricProfile
+): Promise<GenerationOutput> => {
+    const analyzePrompt = `
+**CONTEXTE:** Tu es un expert en analyse de texte, Humanizer Z12. Ta mission est d'analyser un texte existant pour déterminer s'il peut être détecté comme généré par IA.
+
+**TEXTE À ANALYSER:**
+"${text}"
+
+**INSTRUCTIONS:**
+1. NE MODIFIE PAS le texte fourni
+2. Retourne le texte EXACTEMENT tel quel dans le champ "humanizedText"
+3. Fournis une analyse complète de risque de détection (JSON)
+
+**ANALYSE REQUISE (JSON OBLIGATOIRE):**
+*   \`detectionRisk\`: Un objet évaluant le risque global.
+    *   \`score\`: Un score numérique de 0 à 100 indiquant la probabilité que le texte soit perçu comme humain (100 = très humain).
+    *   \`level\`: Le niveau de risque correspondant ('Faible' pour score > 70, 'Modéré' pour 40-70, 'Élevé' pour < 40).
+*   \`perplexity\`: Un objet analysant la prévisibilité du texte.
+    *   \`score\`: Un score numérique de 0 à 100 (100 = très imprévisible, donc plus humain).
+    *   \`analysis\`: Explique brièvement l'impact du score.
+*   \`burstiness\`: Un objet analysant la variation des phrases.
+    *   \`score\`: Un score de 0 à 100 (100 = grande variation de longueur/structure, donc plus humain).
+    *   \`analysis\`: Explique brièvement l'impact du score.
+*   \`flaggedSentences\`: Un tableau listant les 1 à 3 phrases EXACTES du texte qui sont les plus susceptibles d'être détectées comme IA.
+
+**TA TÂCHE:**
+Retourne le texte INCHANGÉ et fournis l'analyse JSON.
+`;
+
+    return callGemini(analyzePrompt, targetProfile);
+}

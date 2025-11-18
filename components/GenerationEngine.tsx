@@ -4,15 +4,18 @@ import ClipboardIcon from './icons/ClipboardIcon';
 import SparklesIcon from './icons/SparklesIcon';
 import { AnalysisResult } from '../types';
 import StatisticsPanel from './StatisticsPanel';
+import EditableTextArea from './EditableTextArea';
 
 interface GenerationEngineProps {
   inputText: string;
   setInputText: (text: string) => void;
   outputText: string;
+  setOutputText: (text: string) => void;
   isLoading: boolean;
   isRefining: boolean;
   handleGenerate: () => void;
   handleRefine: () => void;
+  handleReanalyze?: () => void;
   analysisResult: AnalysisResult | null;
 }
 
@@ -20,18 +23,26 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
   inputText,
   setInputText,
   outputText,
+  setOutputText,
   isLoading,
   isRefining,
   handleGenerate,
   handleRefine,
+  handleReanalyze,
   analysisResult
 }) => {
   const [copied, setCopied] = useState(false);
+  const [hasEdited, setHasEdited] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(outputText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleTextChange = (newText: string) => {
+    setOutputText(newText);
+    setHasEdited(true);
   };
 
   return (
@@ -77,11 +88,27 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
         <div className="flex-1 flex flex-col mt-6 min-h-[200px] sm:min-h-[250px]">
           <div className="flex justify-between items-center mb-2">
             <label className="text-sm font-medium text-muted-foreground">
-              Résultat
+              Résultat {outputText && <span className="text-xs ml-2 italic">(éditable - modifiez les zones surlignées)</span>}
             </label>
             {outputText && (
                <div className="flex items-center space-x-2">
-                 {analysisResult && analysisResult.detectionRisk.level !== 'Faible' && (
+                 {hasEdited && handleReanalyze && (
+                    <button
+                        onClick={() => {
+                          handleReanalyze();
+                          setHasEdited(false);
+                        }}
+                        disabled={isRefining || isLoading}
+                        className="flex items-center text-xs font-medium px-3 py-1 bg-blue-600 text-white hover:bg-blue-700 rounded-sm transition-colors disabled:bg-muted disabled:text-muted-foreground"
+                        title="Re-analyser le texte modifié"
+                    >
+                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Re-analyser
+                    </button>
+                 )}
+                 {analysisResult && analysisResult.detectionRisk.level !== 'Faible' && !hasEdited && (
                     <button
                         onClick={handleRefine}
                         disabled={isRefining || isLoading}
@@ -103,9 +130,12 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
                </div>
             )}
           </div>
-          <div className="w-full flex-grow p-3 bg-input/80 border border-input rounded-md overflow-y-auto whitespace-pre-wrap font-serif">
-            {outputText || <span className="text-muted-foreground">Le résultat apparaîtra ici...</span>}
-          </div>
+          <EditableTextArea
+            text={outputText}
+            flaggedSentences={analysisResult?.flaggedSentences || []}
+            onTextChange={handleTextChange}
+            isEditable={!!outputText}
+          />
         </div>
       </div>
     </div>
