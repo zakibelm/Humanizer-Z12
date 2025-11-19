@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { StyleDistribution, StyleCategory, StyleCategoryId } from '../types';
+import { StyleDistribution, StyleCategory, StyleCategoryId, ModelId } from '../types';
 import CogIcon from './icons/CogIcon';
 import ChevronDownIcon from './icons/ChevronDownIcon';
 import ChevronDoubleLeftIcon from './icons/ChevronDoubleLeftIcon';
@@ -41,9 +42,11 @@ interface ConfigurationPanelProps {
   styles: StyleCategory[];
   isOpen: boolean;
   onToggle: () => void;
+  model: ModelId;
+  setModel: (model: ModelId) => void;
 }
 
-const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({ distribution, setDistribution, styles, isOpen, onToggle }) => {
+const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({ distribution, setDistribution, styles, isOpen, onToggle, model, setModel }) => {
   const [openSection, setOpenSection] = useState<string | null>('distribution');
 
   const toggleAccordionSection = (section: string) => {
@@ -78,6 +81,27 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({ distribution, s
             <h2 className="text-2xl font-bold ml-3 text-card-foreground">Configuration</h2>
           </div>
           <div className="rounded-lg border border-border overflow-hidden">
+             <AccordionSection
+              title="Paramètres du Modèle"
+              isOpen={openSection === 'model'}
+              onToggle={() => toggleAccordionSection('model')}
+            >
+              <div>
+                <label htmlFor="model-select" className="block mb-2 text-sm font-medium text-foreground/90">
+                  Modèle d'IA
+                </label>
+                <select 
+                  id="model-select"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value as ModelId)}
+                  className="w-full p-2 bg-input border border-border rounded-md focus:ring-2 focus:ring-ring focus:border-primary transition-colors duration-200"
+                >
+                  <option value="gemini-2.5-pro">Gemini 2.5 Pro (Qualité)</option>
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash (Rapidité)</option>
+                </select>
+              </div>
+            </AccordionSection>
+
             <AccordionSection
               title="Distribution du Mix"
               isOpen={openSection === 'distribution'}
@@ -104,18 +128,6 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({ distribution, s
                   </div>
                 ))}
               </div>
-            </AccordionSection>
-            <AccordionSection
-              title="Stratégies d'alternance"
-              isOpen={openSection === 'strategies'}
-              onToggle={() => toggleAccordionSection('strategies')}
-            >
-              <ul className="space-y-2 text-sm text-foreground/90 list-disc list-inside">
-                  <li>Par paragraphe</li>
-                  <li>Par ton requis</li>
-                  <li>Aléatoire contrôlé (15%)</li>
-                  <li>Transitions naturelles</li>
-              </ul>
             </AccordionSection>
           </div>
         </div>
