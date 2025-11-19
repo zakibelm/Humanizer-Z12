@@ -1,5 +1,4 @@
-
-import React, { useEffect, useRef } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 
 interface EditableTextAreaProps {
   text: string;
@@ -7,106 +6,116 @@ interface EditableTextAreaProps {
   onTextChange: (newText: string) => void;
 }
 
+// Helper to generate HTML. Keep it outside the component for purity.
+const createMarkup = (text: string, flaggedSentences: string[]): string => {
+    if (!text) return '';
+    let processedText = text;
+
+    if (flaggedSentences && flaggedSentences.length > 0) {
+        const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        
+        // Sanitize sentences: sort by length, ensure uniqueness, trim, and filter out any empty strings.
+        const uniqueSentences = [...new Set(flaggedSentences)]
+            .map(s => s.trim())
+            .filter(Boolean)
+            .sort((a, b) => b.length - a.length);
+
+        if (uniqueSentences.length > 0) {
+            const regex = new RegExp(`(${uniqueSentences.map(escapeRegex).join('|')})`, 'g');
+            processedText = processedText.replace(regex, (match) => {
+                const trimmedMatch = match.trim();
+                const level = uniqueSentences.findIndex(s => s.trim() === trimmedMatch);
+                const highlightLevel = level !== -1 ? level % 3 : 2;
+                const className = `highlight highlight-level-${highlightLevel}`;
+                return `<span class="${className}" title="Phrase à risque détectée">${match}</span>`;
+            });
+        }
+    }
+    return processedText.replace(/\n/g, '<br>');
+};
+
+
 const EditableTextArea: React.FC<EditableTextAreaProps> = ({
   text,
   flaggedSentences,
   onTextChange,
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
+  // This ref tracks whether the last update was from user input, to break update cycles.
+  const isInternalUpdate = useRef(false);
 
-  const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-  const getHighlightedHtml = () => {
-    if (!flaggedSentences || flaggedSentences.length === 0) {
-      return text;
-    }
-    
-    // Use a Set for faster lookups
-    const sentencesToHighlight = new Set(flaggedSentences);
-    
-    // Create a robust regex
-    const regex = new RegExp(`(${flaggedSentences.map(s => escapeRegex(s)).join('|')})`, 'g');
-    
-    return text
-      .split(regex)
-      .map((part, index) => {
-        if (sentencesToHighlight.has(part)) {
-          const level = flaggedSentences.indexOf(part); // 0 = high, 1 = med, 2 = low
-          const className = `highlight highlight-level-${level}`;
-          return `<span class="${className}" title="Phrase à risque détectée">${part}</span>`;
-        }
-        return part;
-      })
-      .join('');
-  };
+  const markup = useMemo(() => createMarkup(text, flaggedSentences), [text, flaggedSentences]);
 
   useEffect(() => {
-    const element = contentRef.current;
-    if (element) {
-        // Only update if the content differs to avoid losing cursor position
-        const currentHtml = element.innerHTML.replace(/<br>/g, '\n');
-        const newHtml = getHighlightedHtml();
-        if (currentHtml !== newHtml) {
-             // A simple way to try and preserve cursor position
-            const selection = window.getSelection();
-            const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-            const startOffset = range ? range.startOffset : 0;
-            
-            element.innerHTML = newHtml.replace(/\n/g, '<br>');
-
-            // Restore cursor
-            if (range && element.firstChild) {
-                try {
-                    const newRange = document.createRange();
-                    // This is a simplification and might not work perfectly in all cases
-                    const textNode = element.firstChild.childNodes[0] || element.firstChild;
-                    newRange.setStart(textNode, Math.min(startOffset, textNode.textContent?.length || 0));
-                    newRange.collapse(true);
-                    selection?.removeAllRanges();
-                    selection?.addRange(newRange);
-                } catch(e) {
-                    // It's okay if this fails sometimes, not critical
-                }
-            }
-        }
+    // If the flag is set, it means the user just typed. We don't want to
+    // overwrite their input and lose the cursor position. Reset the flag and bail.
+    if (isInternalUpdate.current) {
+      isInternalUpdate.current = false;
+      return;
     }
-  }, [text, flaggedSentences]);
+
+    // If we're here, the change came from outside (e.g., AI response).
+    // Update the DOM if it's out of sync with our calculated markup.
+    if (contentRef.current && contentRef.current.innerHTML !== markup) {
+      contentRef.current.innerHTML = markup;
+    }
+  }, [markup]); // This effect ONLY depends on the calculated markup.
 
   const handleInput = () => {
-    const element = contentRef.current;
-    if (element) {
-      onTextChange(element.innerText);
+    if (contentRef.current) {
+      // Set the flag to true BEFORE calling onTextChange.
+      // This signals that the subsequent re-render is caused by user input.
+      isInternalUpdate.current = true;
+      // innerText normalizes line breaks to '\n', which is what our state should use.
+      onTextChange(contentRef.current.innerText);
     }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const plainText = e.clipboardData.getData('text/plain');
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) return;
+
+    selection.deleteFromDocument();
+    selection.getRangeAt(0).insertNode(document.createTextNode(plainText));
+    selection.collapseToEnd();
+    
+    // Manually trigger handleInput to update the state after pasting.
+    handleInput();
   };
 
   return (
     <>
-    <style>{`
+      <style>{`
         .highlight {
-            padding: 2px 0;
+            padding: 1px 0;
             border-radius: 3px;
-            transition: background-color 0.2s ease-in-out;
         }
         .highlight-level-0 {
-            background-color: rgba(239, 68, 68, 0.2);
-            border-bottom: 2px solid rgba(239, 68, 68, 0.6);
+            background-color: oklch(0.6368 0.2078 25.3313 / 0.3);
+            border-bottom: 2px solid oklch(0.6368 0.2078 25.3313 / 0.75);
         }
         .highlight-level-1 {
-            background-color: rgba(249, 115, 22, 0.2);
-            border-bottom: 2px solid rgba(249, 115, 22, 0.6);
+            background-color: oklch(0.81 0.18 86.32 / 0.3);
+            border-bottom: 2px solid oklch(0.81 0.18 86.32 / 0.75);
         }
-        .highlight-level-2 {
-            background-color: rgba(234, 179, 8, 0.2);
-            border-bottom: 2px solid rgba(234, 179, 8, 0.6);
+        .highlight-level-2,
+        .highlight-level-3 {
+            background-color: oklch(0.89 0.16 99.1 / 0.3);
+            border-bottom: 2px solid oklch(0.89 0.16 99.1 / 0.75);
         }
-    `}</style>
-    <div
-      ref={contentRef}
-      onInput={handleInput}
-      contentEditable
-      className="w-full flex-grow p-3 bg-input/80 border border-input rounded-md overflow-y-auto whitespace-pre-wrap font-serif focus:ring-2 focus:ring-ring focus:border-primary"
-      dangerouslySetInnerHTML={{ __html: getHighlightedHtml().replace(/\n/g, '<br>') }}
-    />
+      `}</style>
+      <div
+        ref={contentRef}
+        onInput={handleInput}
+        onPaste={handlePaste}
+        contentEditable
+        suppressContentEditableWarning={true}
+        className="w-full flex-grow p-3 bg-input/80 border border-input rounded-md overflow-y-auto whitespace-pre-wrap font-serif focus:ring-2 focus:ring-ring focus:border-primary"
+        // We set the content initially. `useEffect` handles all subsequent updates.
+        dangerouslySetInnerHTML={{ __html: markup }}
+      />
     </>
   );
 };

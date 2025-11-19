@@ -54,3 +54,16 @@ export interface AnalysisResult {
   flaggedSentences: string[];
   stylometricMatch?: StylometricMatch;
 }
+
+export interface WorkflowStep {
+  id: string;
+  label: string;
+  status: 'pending' | 'running' | 'success' | 'warning' | 'error';
+  details?: string;
+}
+
+export interface AgenticConfig {
+  enabled: boolean;
+  targetScore: number;
+  maxIterations: number;
+}
