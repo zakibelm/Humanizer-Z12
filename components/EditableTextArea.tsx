@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect, useMemo } from 'react';
 
 interface EditableTextAreaProps {
@@ -112,7 +113,7 @@ const EditableTextArea: React.FC<EditableTextAreaProps> = ({
         onPaste={handlePaste}
         contentEditable
         suppressContentEditableWarning={true}
-        className="w-full flex-grow p-3 bg-input/80 border border-input rounded-md overflow-y-auto whitespace-pre-wrap font-serif focus:ring-2 focus:ring-ring focus:border-primary"
+        className="w-full flex-grow p-3 bg-black/50 border border-input rounded-md overflow-y-auto whitespace-pre-wrap font-serif focus:ring-2 focus:ring-ring focus:border-primary text-foreground shadow-inner"
         // We set the content initially. `useEffect` handles all subsequent updates.
         dangerouslySetInnerHTML={{ __html: markup }}
       />

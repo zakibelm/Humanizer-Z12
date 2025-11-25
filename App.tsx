@@ -289,7 +289,7 @@ const App: React.FC = () => {
                 la désinformation ou toute activité violant les droits d'auteur ou les politiques d'intégrité.
             </p>
             <p className="text-[10px] text-muted-foreground/60">
-                Généré par Gemini 2.5 • Analyse Stylométrique Locale (Intl.Segmenter) • Session Utilisateur Active
+                propulsé par Zakibelm • Analyse Stylométrique Locale (Intl.Segmenter) • Session Utilisateur Active
             </p>
         </div>
       </footer>

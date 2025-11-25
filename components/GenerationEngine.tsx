@@ -135,7 +135,7 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder="Écrivez le sujet ou collez votre brouillon IA ici..."
-            className={`w-full flex-grow p-3 bg-input/80 border rounded-md focus:ring-2 focus:ring-ring transition-all duration-200 resize-none text-foreground placeholder:text-muted-foreground ${isInputTooLong ? 'border-destructive focus:border-destructive' : 'border-input focus:border-primary'}`}
+            className={`w-full flex-grow p-3 bg-black/50 border rounded-md focus:ring-2 focus:ring-ring transition-all duration-200 resize-none text-foreground placeholder:text-muted-foreground shadow-inner ${isInputTooLong ? 'border-destructive focus:border-destructive' : 'border-input focus:border-primary'}`}
           />
           <div className={`text-right text-xs mt-1 ${isInputTooLong ? 'text-destructive' : 'text-muted-foreground'}`}>
             {inputText.length} / {MAX_INPUT_CHARS} caractères
