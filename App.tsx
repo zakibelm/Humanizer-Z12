@@ -3,21 +3,42 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import StyleLibrary from './components/StyleLibrary';
 import ConfigurationPanel from './components/ConfigurationPanel';
 import GenerationEngine from './components/GenerationEngine';
+import DocumentationModal from './components/DocumentationModal';
+import LoginScreen from './components/LoginScreen';
+import QuestionMarkCircleIcon from './components/icons/QuestionMarkCircleIcon';
 import { INITIAL_STYLES, INITIAL_DISTRIBUTION, MAX_INPUT_CHARS } from './constants';
 import { StyleCategory, StyleDistribution, AnalysisResult, ModelId, WorkflowStep, AgenticConfig, StylometricProfile } from './types';
 import { generateHumanizedText, refineHumanizedText, analyzeExistingText } from './services/geminiService';
 import { createCompositeProfile } from './services/stylometryService';
 
+interface UserSession {
+  name: string;
+  email: string;
+  avatar?: string;
+}
+
 const App: React.FC = () => {
-  // Initialize state with lazy initializers to try loading from local storage first
+  // Auth State
+  const [user, setUser] = useState<UserSession | null>(() => {
+    try {
+      const savedUser = localStorage.getItem('z12_user_session');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch { return null; }
+  });
+
+  // Initialize state with lazy initializers
   const [styles, setStyles] = useState<StyleCategory[]>(() => {
-    const saved = localStorage.getItem('z12_styles');
-    return saved ? JSON.parse(saved) : INITIAL_STYLES;
+    try {
+        const saved = localStorage.getItem('z12_styles');
+        return saved ? JSON.parse(saved) : INITIAL_STYLES;
+    } catch { return INITIAL_STYLES; }
   });
   
   const [distribution, setDistribution] = useState<StyleDistribution>(() => {
-    const saved = localStorage.getItem('z12_distribution');
-    return saved ? JSON.parse(saved) : INITIAL_DISTRIBUTION;
+    try {
+        const saved = localStorage.getItem('z12_distribution');
+        return saved ? JSON.parse(saved) : INITIAL_DISTRIBUTION;
+    } catch { return INITIAL_DISTRIBUTION; }
   });
 
   const [inputText, setInputText] = useState<string>('');
@@ -26,6 +47,7 @@ const App: React.FC = () => {
   const [isRefining, setIsRefining] = useState<boolean>(false);
   const [isStyleLibraryOpen, setIsStyleLibraryOpen] = useState(true);
   const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(true);
+  const [isDocModalOpen, setIsDocModalOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [model, setModel] = useState<ModelId>('gemini-2.5-pro');
   const [error, setError] = useState<string | null>(null);
@@ -33,13 +55,13 @@ const App: React.FC = () => {
   
   // Agentic State
   const [agenticConfig, setAgenticConfig] = useState<AgenticConfig>({
-      enabled: true, // Enabled by default for better results
+      enabled: true, 
       targetScore: 90,
       maxIterations: 3
   });
   const [workflowLogs, setWorkflowLogs] = useState<WorkflowStep[]>([]);
 
-  // Persistence Effect
+  // Persistence Effects
   useEffect(() => {
     localStorage.setItem('z12_styles', JSON.stringify(styles));
   }, [styles]);
@@ -48,12 +70,18 @@ const App: React.FC = () => {
     localStorage.setItem('z12_distribution', JSON.stringify(distribution));
   }, [distribution]);
 
-  // PERFORMANCE OPTIMIZATION:
-  // Calculate the composite profile ONLY when styles change, not on every generation.
-  // This matches the "Backend Workflow 1" logic.
+  const handleLogin = (userData: UserSession) => {
+    setUser(userData);
+    localStorage.setItem('z12_user_session', JSON.stringify(userData));
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('z12_user_session');
+  };
+
   const activeProfile = useMemo<StylometricProfile>(() => {
     const allDocumentTexts = styles.flatMap(category => category.documents.map(doc => doc.content));
-    // Fallback if no docs, though UI prevents empty generation usually
     return createCompositeProfile(allDocumentTexts.length > 0 ? allDocumentTexts : [""]);
   }, [styles]);
   
@@ -75,7 +103,6 @@ const App: React.FC = () => {
         return;
     }
 
-    // Check if we have any docs
     const hasDocs = styles.some(s => s.documents.length > 0);
     if (!hasDocs) {
         setError("Veuillez ajouter au moins un document à la bibliothèque pour définir un style.");
@@ -95,7 +122,7 @@ const App: React.FC = () => {
             styles, 
             distribution, 
             model,
-            activeProfile, // Pass the memoized profile
+            activeProfile, 
             agenticConfig,
             (step) => setWorkflowLogs(prev => [...prev, step])
         );
@@ -168,19 +195,53 @@ const App: React.FC = () => {
     return `${leftCol} ${midCol} ${rightCol}`;
   }, [isStyleLibraryOpen, isConfigPanelOpen]);
 
+  // Render Login Screen if not authenticated
+  if (!user) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+
   return (
-    <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8">
+    <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8 relative">
+      <DocumentationModal isOpen={isDocModalOpen} onClose={() => setIsDocModalOpen(false)} />
+      
+      {/* User Profile / Logout - Top Left */}
+      <div className="fixed top-4 left-4 z-40 flex items-center gap-3 bg-card/80 backdrop-blur-md p-2 rounded-full border border-border shadow-sm group">
+        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden border border-primary/30 text-primary font-bold text-xs">
+           {user.name.charAt(0)}
+        </div>
+        <div className="flex flex-col max-w-0 group-hover:max-w-[150px] transition-all duration-300 overflow-hidden whitespace-nowrap">
+            <span className="text-xs font-bold text-foreground">{user.name}</span>
+            <button onClick={handleLogout} className="text-[10px] text-muted-foreground hover:text-destructive text-left">Se déconnecter</button>
+        </div>
+      </div>
+
+      <button 
+        onClick={() => setIsDocModalOpen(true)}
+        className="fixed top-4 right-4 sm:top-6 sm:right-6 z-40 p-2 bg-card/80 backdrop-blur-md border border-border rounded-full shadow-lg hover:bg-card hover:text-primary transition-all duration-300 group"
+        title="Ouvrir la documentation"
+      >
+        <QuestionMarkCircleIcon className="w-6 h-6 text-muted-foreground group-hover:text-primary" />
+      </button>
+
       <header className="text-center mb-8 flex-shrink-0">
+        <div className="flex justify-center items-center mb-2">
+            <div className="px-2 py-0.5 rounded border border-primary/30 bg-primary/10 text-[10px] text-primary tracking-widest uppercase font-bold mr-3">
+                Production Ready
+            </div>
+            <div className="px-2 py-0.5 rounded border border-accent/30 bg-accent/10 text-[10px] text-accent tracking-widest uppercase font-bold">
+                Agentic Core v2
+            </div>
+        </div>
         <h1 className="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
-          Humanizer Z12 <span className="text-xs font-mono bg-accent/20 text-accent px-2 py-1 rounded ml-2 border border-accent/50">AGENTIC CORE</span>
+          Humanizer Z12
         </h1>
         <p className="text-lg text-muted-foreground mt-2 max-w-2xl mx-auto">
-          Architecture de génération autonome avec boucle de vérification et mémoire persistante.
+          Solution agentique autonome pour transformer vos textes IA en contenu humain naturel et authentique.
         </p>
       </header>
 
       <main 
-        className="flex-grow grid gap-8 items-start"
+        className="flex-grow grid gap-8 items-start mb-12"
         style={{ 
           gridTemplateColumns,
           transition: 'grid-template-columns 300ms ease-in-out'
@@ -219,6 +280,19 @@ const App: React.FC = () => {
           setModel={setModel}
         />
       </main>
+
+      <footer className="mt-auto py-6 border-t border-border/50 text-center">
+        <div className="max-w-4xl mx-auto px-4">
+            <p className="text-xs text-muted-foreground mb-2">
+                <strong className="text-foreground/80">Usage Responsable :</strong> Humanizer Z12 est un outil d'aide à la rédaction conçu pour améliorer la fluidité et la qualité stylistique des textes. 
+                L'utilisateur est seul responsable de l'utilisation du contenu généré. Nous condamnons l'utilisation de cet outil pour la fraude académique, 
+                la désinformation ou toute activité violant les droits d'auteur ou les politiques d'intégrité.
+            </p>
+            <p className="text-[10px] text-muted-foreground/60">
+                Généré par Gemini 2.5 • Analyse Stylométrique Locale (Intl.Segmenter) • Session Utilisateur Active
+            </p>
+        </div>
+      </footer>
     </div>
   );
 }

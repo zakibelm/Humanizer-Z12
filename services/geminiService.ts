@@ -50,7 +50,7 @@ const formatProfileForPrompt = (profile: StylometricProfile): string => {
 };
 
 const buildSystemInstructionForGeneration = (styles: StyleCategory[], distribution: StyleDistribution, targetProfile: StylometricProfile): string => {
-    let instruction = `**RÔLE:** Tu es Humanizer Z12, un écrivain fantôme expert. Ta tâche est de rédiger un texte indétectable par les outils anti-IA (ZeroGPT, Turnitin).
+    let instruction = `**RÔLE:** Tu es Humanizer Z12, un écrivain fantôme expert. Ta tâche est de rédiger un texte au style parfaitement humain et naturel.
 
 **OBJECTIF:** Score d'humanisation > 95%.
 **ANTI-PATTERNS (MOTS INTERDITS) :** N'utilise JAMAIS ces expressions typiques de l'IA : ${AI_PATTERNS_TO_AVOID.join(', ')}.
@@ -89,13 +89,13 @@ ${contextSample}
 };
 
 const buildSystemInstructionForRefinement = (targetProfile: StylometricProfile, deviations: string[], previousAnalysis?: AnalysisResult): string => {
-    let instruction = `**RÔLE:** Éditeur impitoyable. Tu dois réécrire ce texte pour qu'il passe pour de l'humain.
+    let instruction = `**RÔLE:** Éditeur impitoyable. Tu dois réécrire ce texte pour qu'il semble plus naturel et humain.
 
 **PROFIL CIBLE :**
 ${formatProfileForPrompt(targetProfile)}
 
 **DIAGNOSTIC PRÉCÉDENT (À CORRIGER) :**
-${deviations.length > 0 ? `L'IA a détecté ces défauts : ${deviations.join('; ')}.` : "Le texte manque de 'sel' humain."}
+${deviations.length > 0 ? `L'analyseur stylistique a détecté ces défauts : ${deviations.join('; ')}.` : "Le texte manque de 'sel' humain."}
 ${previousAnalysis ? `Score actuel : ${previousAnalysis.detectionRisk.score}/100.` : ""}
 
 **ACTIONS DE RÉÉCRITURE :**
@@ -110,7 +110,7 @@ Renvoie UNIQUEMENT le texte amélioré.
 };
 
 const buildSystemInstructionForAnalysis = (): string => {
-    return `**RÔLE:** Tu es un moteur de détection d'IA adverse (Simulateur ZeroGPT).
+    return `**RÔLE:** Tu es un moteur de détection de style adverse.
 **TACHE:** Analyse le texte suivant et sois SÉVÈRE. Cherche les motifs répétitifs, le manque de profondeur, et la structure trop parfaite.
 
 Renvoie un JSON strict respectant ce schéma :
@@ -118,7 +118,7 @@ Renvoie un JSON strict respectant ce schéma :
   "detectionRisk": { "level": "Faible"|"Modéré"|"Élevé", "score": number (0-100, 100=Humain) },
   "perplexity": { "score": number, "analysis": string },
   "burstiness": { "score": number, "analysis": string },
-  "flaggedSentences": string[] (Top 3 des phrases qui font "le plus IA")
+  "flaggedSentences": string[] (Top 3 des phrases qui font "le moins naturel")
 }`;
 };
 
@@ -238,13 +238,13 @@ export const generateHumanizedText = async (
     addLog("Génération (Brouillon)", "success", "Texte initial généré.");
 
     // Step 2: Analysis
-    addLog("Auto-Évaluation", "running", "Simulation détecteur ZeroGPT...");
+    addLog("Auto-Évaluation", "running", "Analyse stylométrique avancée...");
     const analysisSystemInstruction = buildSystemInstructionForAnalysis();
     let currentAnalysis = await callGeminiForAnalysis(currentText, analysisSystemInstruction, model);
     
     const generatedProfile = analyzeText(currentText);
     currentAnalysis.stylometricMatch = compareProfiles(generatedProfile, targetProfile);
-    addLog("Auto-Évaluation", "success", `Score détecté : ${currentAnalysis.detectionRisk.score}%`);
+    addLog("Auto-Évaluation", "success", `Score de naturalité : ${currentAnalysis.detectionRisk.score}%`);
 
     // Step 3: Agentic Loop (Observe-Execute)
     if (agenticConfig.enabled) {
