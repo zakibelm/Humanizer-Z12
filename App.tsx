@@ -5,11 +5,15 @@ import ConfigurationPanel from './components/ConfigurationPanel';
 import GenerationEngine from './components/GenerationEngine';
 import DocumentationModal from './components/DocumentationModal';
 import LoginScreen from './components/LoginScreen';
+import SettingsModal from './components/SettingsModal';
 import QuestionMarkCircleIcon from './components/icons/QuestionMarkCircleIcon';
+import CogIcon from './components/icons/CogIcon';
 import { INITIAL_STYLES, INITIAL_DISTRIBUTION, MAX_INPUT_CHARS } from './constants';
-import { StyleCategory, StyleDistribution, AnalysisResult, ModelId, WorkflowStep, AgenticConfig, StylometricProfile } from './types';
-import { generateHumanizedText, refineHumanizedText, analyzeExistingText } from './services/geminiService';
+import { StyleCategory, StyleDistribution, AnalysisResult, WorkflowStep, AgenticConfig, StylometricProfile, AppSettings } from './types';
+import { generateHumanizedText, refineHumanizedText, analyzeExistingText } from './services/aiService';
 import { createCompositeProfile } from './services/stylometryService';
+import { POPULAR_OPENROUTER_MODELS } from './services/openRouterService';
+import { DEFAULT_GENERATION_PROMPT, DEFAULT_REFINEMENT_PROMPT, DEFAULT_ANALYSIS_PROMPT } from './defaultPrompts';
 
 interface UserSession {
   name: string;
@@ -48,10 +52,56 @@ const App: React.FC = () => {
   const [isStyleLibraryOpen, setIsStyleLibraryOpen] = useState(true);
   const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(true);
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [model, setModel] = useState<ModelId>('gemini-2.5-pro');
   const [error, setError] = useState<string | null>(null);
   const [hasBeenEdited, setHasBeenEdited] = useState<boolean>(false);
+
+  // App Settings State
+  const [appSettings, setAppSettings] = useState<AppSettings>(() => {
+    try {
+      const saved = localStorage.getItem('z12_app_settings');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('Failed to load settings:', e);
+    }
+
+    // Default settings
+    return {
+      apiKeys: {
+        openrouter: '',
+        gemini: '',
+        zerogpt: ''
+      },
+      modelAssignments: [
+        {
+          role: 'generator',
+          model: POPULAR_OPENROUTER_MODELS[0], // Claude 3.5 Sonnet by default
+          temperature: 1.0,
+          enabled: true
+        },
+        {
+          role: 'refiner',
+          model: POPULAR_OPENROUTER_MODELS[0],
+          temperature: 1.0,
+          enabled: true
+        },
+        {
+          role: 'analyzer',
+          model: POPULAR_OPENROUTER_MODELS[2], // Claude Haiku (fast & cheap)
+          temperature: 0.1,
+          enabled: true
+        }
+      ],
+      defaultPrompts: {
+        generation: DEFAULT_GENERATION_PROMPT,
+        refinement: DEFAULT_REFINEMENT_PROMPT,
+        analysis: DEFAULT_ANALYSIS_PROMPT
+      }
+    };
+  });
   
   // Agentic State
   const [agenticConfig, setAgenticConfig] = useState<AgenticConfig>({
@@ -69,6 +119,10 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('z12_distribution', JSON.stringify(distribution));
   }, [distribution]);
+
+  useEffect(() => {
+    localStorage.setItem('z12_app_settings', JSON.stringify(appSettings));
+  }, [appSettings]);
 
   const handleLogin = (userData: UserSession) => {
     setUser(userData);
@@ -109,6 +163,13 @@ const App: React.FC = () => {
         return;
     }
 
+    // Vérifier qu'au moins une clé API est configurée
+    if (!appSettings.apiKeys.openrouter && !appSettings.apiKeys.gemini) {
+        setError("Veuillez configurer au moins une clé API (OpenRouter ou Gemini) dans les Paramètres.");
+        setIsSettingsModalOpen(true);
+        return;
+    }
+
     setIsLoading(true);
     setOutputText('');
     setAnalysisResult(null);
@@ -118,12 +179,12 @@ const App: React.FC = () => {
 
     try {
         const result = await generateHumanizedText(
-            inputText, 
-            styles, 
-            distribution, 
-            model,
-            activeProfile, 
+            inputText,
+            styles,
+            distribution,
+            activeProfile,
             agenticConfig,
+            appSettings,
             (step) => setWorkflowLogs(prev => [...prev, step])
         );
         setOutputText(result.text);
@@ -138,7 +199,7 @@ const App: React.FC = () => {
     } finally {
         setIsLoading(false);
     }
-  }, [inputText, styles, distribution, model, agenticConfig, activeProfile]);
+  }, [inputText, styles, distribution, agenticConfig, activeProfile, appSettings]);
 
   const handleRefine = useCallback(async () => {
     if (!outputText || !analysisResult) return;
@@ -147,9 +208,9 @@ const App: React.FC = () => {
     setError(null);
     setHasBeenEdited(false);
     setWorkflowLogs(prev => [...prev, { id: Date.now().toString(), label: "Raffinement manuel", status: "running", details: "Amélioration ciblée demandée..."}]);
-    
+
     try {
-        const result = await refineHumanizedText(outputText, analysisResult, styles, model, activeProfile);
+        const result = await refineHumanizedText(outputText, analysisResult, styles, distribution, activeProfile, appSettings);
         setOutputText(result.text);
         setAnalysisResult(result.analysis);
         setWorkflowLogs(prev => prev.map(l => l.status === 'running' ? { ...l, status: 'success', details: 'Terminé.' } : l));
@@ -162,7 +223,7 @@ const App: React.FC = () => {
     } finally {
         setIsRefining(false);
     }
-  }, [outputText, analysisResult, styles, model, activeProfile]);
+  }, [outputText, analysisResult, styles, distribution, activeProfile, appSettings]);
 
   const handleReanalyze = useCallback(async () => {
     if (!outputText) return;
@@ -171,8 +232,8 @@ const App: React.FC = () => {
     setWorkflowLogs(prev => [...prev, { id: Date.now().toString(), label: "Ré-analyse", status: "running", details: "Analyse des modifications..."}]);
 
     try {
-        const result = await analyzeExistingText(outputText, activeProfile, model);
-        setOutputText(result.text); 
+        const result = await analyzeExistingText(outputText, activeProfile, appSettings);
+        setOutputText(result.text);
         setAnalysisResult(result.analysis);
         setHasBeenEdited(false);
          setWorkflowLogs(prev => prev.map(l => l.status === 'running' ? { ...l, status: 'success', details: `Nouveau score : ${result.analysis.detectionRisk.score}%` } : l));
@@ -185,7 +246,7 @@ const App: React.FC = () => {
     } finally {
         setIsRefining(false);
     }
-  }, [outputText, activeProfile, model]);
+  }, [outputText, activeProfile, appSettings]);
 
 
   const gridTemplateColumns = useMemo(() => {
@@ -203,7 +264,13 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8 relative">
       <DocumentationModal isOpen={isDocModalOpen} onClose={() => setIsDocModalOpen(false)} />
-      
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        settings={appSettings}
+        onSave={setAppSettings}
+      />
+
       {/* User Profile / Logout - Top Left */}
       <div className="fixed top-4 left-4 z-40 flex items-center gap-3 bg-card/80 backdrop-blur-md p-2 rounded-full border border-border shadow-sm group">
         <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden border border-primary/30 text-primary font-bold text-xs">
@@ -215,13 +282,23 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      <button 
-        onClick={() => setIsDocModalOpen(true)}
-        className="fixed top-4 right-4 sm:top-6 sm:right-6 z-40 p-2 bg-card/80 backdrop-blur-md border border-border rounded-full shadow-lg hover:bg-card hover:text-primary transition-all duration-300 group"
-        title="Ouvrir la documentation"
-      >
-        <QuestionMarkCircleIcon className="w-6 h-6 text-muted-foreground group-hover:text-primary" />
-      </button>
+      {/* Top Right Buttons */}
+      <div className="fixed top-4 right-4 sm:top-6 sm:right-6 z-40 flex gap-2">
+        <button
+          onClick={() => setIsSettingsModalOpen(true)}
+          className="p-2 bg-card/80 backdrop-blur-md border border-border rounded-full shadow-lg hover:bg-card hover:text-secondary transition-all duration-300 group"
+          title="Paramètres"
+        >
+          <CogIcon className="w-6 h-6 text-muted-foreground group-hover:text-secondary" />
+        </button>
+        <button
+          onClick={() => setIsDocModalOpen(true)}
+          className="p-2 bg-card/80 backdrop-blur-md border border-border rounded-full shadow-lg hover:bg-card hover:text-primary transition-all duration-300 group"
+          title="Documentation"
+        >
+          <QuestionMarkCircleIcon className="w-6 h-6 text-muted-foreground group-hover:text-primary" />
+        </button>
+      </div>
 
       <header className="text-center mb-8 flex-shrink-0">
         <div className="flex justify-center items-center mb-2">
@@ -270,14 +347,12 @@ const App: React.FC = () => {
           setAgenticConfig={setAgenticConfig}
           workflowLogs={workflowLogs}
         />
-        <ConfigurationPanel 
-          distribution={distribution} 
+        <ConfigurationPanel
+          distribution={distribution}
           setDistribution={setDistribution}
           styles={styles}
           isOpen={isConfigPanelOpen}
           onToggle={() => setIsConfigPanelOpen(prev => !prev)}
-          model={model}
-          setModel={setModel}
         />
       </main>
 

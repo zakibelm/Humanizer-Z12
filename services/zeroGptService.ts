@@ -1,28 +1,30 @@
 
 import { ZeroGptResult } from '../types';
 
-// Clé API fournie par l'utilisateur
-const USER_API_KEY = "ba51f26b-7e8b-423e-bf2d-6c49e2210840";
-
-// Note: En production réelle, utilisez un Proxy backend pour éviter d'exposer la clé.
 // API Endpoint officiel de ZeroGPT
 const API_URL = "https://api.zerogpt.com/api/detect/detectText";
 
-export const detectAI = async (text: string): Promise<ZeroGptResult | null> => {
+export const detectAI = async (text: string, apiKey?: string): Promise<ZeroGptResult | null> => {
     // ZeroGPT a souvent une limite minimale de caractères
     if (!text || text.trim().length < 50) {
         return null;
     }
 
+    // Si pas de clé API, on retourne null (mode dégradé)
+    if (!apiKey || apiKey.trim() === '') {
+        console.warn("⚠️ ZeroGPT désactivé : Clé API manquante");
+        return null;
+    }
+
     try {
         console.log("🔍 Interrogation du Juge ZeroGPT...");
-        
+
         const response = await fetch(API_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
-                'ApiKey': USER_API_KEY
+                'ApiKey': apiKey
             },
             body: JSON.stringify({
                 input_text: text
