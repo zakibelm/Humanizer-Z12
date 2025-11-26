@@ -6,7 +6,19 @@ export interface Document {
 }
 
 export type StyleCategoryId = 'user' | 'journalistic' | 'academic' | 'conversational' | 'creative';
-export type ModelId = 'gemini-2.5-pro' | 'gemini-2.5-flash';
+
+// AI Provider Types
+export type AIProvider = 'openrouter' | 'gemini';
+
+export interface AIModel {
+  id: string;
+  name: string;
+  provider: AIProvider;
+  contextWindow?: number;
+  costPer1kTokens?: number;
+}
+
+export type WorkflowRole = 'generator' | 'refiner' | 'analyzer';
 
 export interface StyleCategory {
   id: StyleCategoryId;
@@ -76,4 +88,33 @@ export interface AgenticConfig {
   enabled: boolean;
   targetScore: number;
   maxIterations: number;
+}
+
+// Advanced Multi-Model Configuration
+export interface ModelAssignment {
+  role: WorkflowRole;
+  model: AIModel;
+  systemPrompt?: string; // Custom system prompt override
+  temperature?: number;
+  enabled: boolean;
+}
+
+export interface AppSettings {
+  apiKeys: {
+    openrouter?: string;
+    gemini?: string;
+    zerogpt?: string;
+  };
+  modelAssignments: ModelAssignment[];
+  defaultPrompts: {
+    generation: string;
+    refinement: string;
+    analysis: string;
+  };
+}
+
+export interface WorkflowStepExtended extends WorkflowStep {
+  modelUsed?: string;
+  tokensUsed?: number;
+  duration?: number;
 }
