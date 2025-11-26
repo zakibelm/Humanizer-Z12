@@ -3,8 +3,9 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import ClipboardIcon from './icons/ClipboardIcon';
 import SparklesIcon from './icons/SparklesIcon';
 import DownloadIcon from './icons/DownloadIcon';
-import { AnalysisResult, AgenticConfig, WorkflowStep } from '../types';
+import { AnalysisResult, AgenticConfig, WorkflowStep, AppSettings } from '../types';
 import StatisticsPanel from './StatisticsPanel';
+import ActiveModelsIndicator from './ActiveModelsIndicator';
 import { MAX_INPUT_CHARS } from '../constants';
 import EditableTextArea from './EditableTextArea';
 import ZapIcon from './icons/ZapIcon';
@@ -26,6 +27,7 @@ interface GenerationEngineProps {
   agenticConfig: AgenticConfig;
   setAgenticConfig: (config: AgenticConfig) => void;
   workflowLogs: WorkflowStep[];
+  appSettings: AppSettings;
 }
 
 const GenerationEngine: React.FC<GenerationEngineProps> = ({
@@ -43,7 +45,8 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
   hasBeenEdited,
   agenticConfig,
   setAgenticConfig,
-  workflowLogs
+  workflowLogs,
+  appSettings
 }) => {
   const [copied, setCopied] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -56,6 +59,10 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
   }, [isLoading, isRefining, inputText]);
 
   const isInputTooLong = inputText.length > MAX_INPUT_CHARS;
+
+  const inputWordCount = useMemo(() => {
+    return inputText.trim().split(/\s+/).filter(Boolean).length;
+  }, [inputText]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -163,6 +170,17 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
                 </div>
                 <span className="italic ml-auto hidden sm:inline">Le système bouclera jusqu'à satisfaction.</span>
             </div>
+        )}
+
+        {/* Active Models Indicator */}
+        {!isLoading && !outputText && inputText && (
+          <div className="mb-4 animate-fade-in">
+            <ActiveModelsIndicator
+              settings={appSettings}
+              inputWordCount={inputWordCount}
+              agenticIterations={agenticConfig.maxIterations}
+            />
+          </div>
         )}
 
         {/* Workflow Logs (Visible during loading or if logs exist) */}

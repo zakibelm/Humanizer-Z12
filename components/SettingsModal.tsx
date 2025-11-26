@@ -3,8 +3,10 @@ import React, { useState } from 'react';
 import { AppSettings, AIModel, ModelAssignment, WorkflowRole } from '../types';
 import { POPULAR_OPENROUTER_MODELS } from '../services/openRouterService';
 import { DEFAULT_GENERATION_PROMPT, DEFAULT_REFINEMENT_PROMPT, DEFAULT_ANALYSIS_PROMPT } from '../defaultPrompts';
+import { CONFIG_TEMPLATES, applyTemplate } from '../configTemplates';
 import CogIcon from './icons/CogIcon';
 import ChevronDownIcon from './icons/ChevronDownIcon';
+import ZapIcon from './icons/ZapIcon';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -93,6 +95,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
       analysis: DEFAULT_ANALYSIS_PROMPT
     };
     handlePromptChange(promptType, defaults[promptType]);
+  };
+
+  const handleApplyTemplate = (templateId: string) => {
+    const newSettings = applyTemplate(templateId, localSettings);
+    setLocalSettings(newSettings);
   };
 
   return (
@@ -205,6 +212,37 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
               <div className="bg-primary/10 border border-primary/30 rounded-lg p-4 text-sm text-foreground">
                 <strong>🎯 Workflow Multi-Modèles :</strong> Assignez différents modèles pour chaque étape du workflow.
                 Un modèle créatif pour la génération, un modèle précis pour l'analyse, etc.
+              </div>
+
+              {/* Templates Section */}
+              <div>
+                <h3 className="font-bold text-foreground mb-3 flex items-center gap-2">
+                  <ZapIcon className="w-5 h-5 text-secondary" />
+                  Templates de Configuration
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {CONFIG_TEMPLATES.map(template => (
+                    <button
+                      key={template.id}
+                      onClick={() => handleApplyTemplate(template.id)}
+                      className="text-left p-4 border border-border rounded-lg hover:bg-muted/30 hover:border-primary/50 transition-all group"
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className="text-3xl">{template.icon}</span>
+                        <div className="flex-1">
+                          <h4 className="font-bold text-foreground group-hover:text-primary transition-colors">
+                            {template.name}
+                          </h4>
+                          <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
+                          <div className="flex gap-3 mt-2 text-[10px] text-muted-foreground">
+                            <span>💵 ~${template.estimatedCostPer1kWords.toFixed(3)}/1k mots</span>
+                            <span>⏱️ {template.estimatedSpeed}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {(['generator', 'refiner', 'analyzer'] as WorkflowRole[]).map(role => {

@@ -330,7 +330,7 @@ const App: React.FC = () => {
           isOpen={isStyleLibraryOpen}
           onToggle={() => setIsStyleLibraryOpen(prev => !prev)}
         />
-        <GenerationEngine 
+        <GenerationEngine
           inputText={inputText}
           setInputText={handleInputTextChange}
           outputText={outputText}
@@ -346,6 +346,7 @@ const App: React.FC = () => {
           agenticConfig={agenticConfig}
           setAgenticConfig={setAgenticConfig}
           workflowLogs={workflowLogs}
+          appSettings={appSettings}
         />
         <ConfigurationPanel
           distribution={distribution}
