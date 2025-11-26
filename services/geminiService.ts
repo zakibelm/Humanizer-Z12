@@ -2,6 +2,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { StyleCategory, StyleDistribution, AnalysisResult, ModelId, StylometricProfile, WorkflowStep } from '../types';
 import { analyzeText, compareProfiles } from './stylometryService';
+import { detectAI } from './zeroGptService';
 
 export interface GenerationOutput {
     text: string;
@@ -33,7 +34,7 @@ const retryWrapper = async <T>(
 const AI_PATTERNS_TO_AVOID = [
     "En conclusion", "Il est important de noter", "En résumé", "Plongeons dans", 
     "Tapestry", "Delve", "Landscape", "Symphony", "Crucial", "Foster", "Nuance",
-    "Dans le monde d'aujourd'hui", "Il convient de souligner"
+    "Dans le monde d'aujourd'hui", "Il convient de souligner", "Globalement"
 ];
 
 const formatProfileForPrompt = (profile: StylometricProfile): string => {
@@ -50,9 +51,9 @@ const formatProfileForPrompt = (profile: StylometricProfile): string => {
 };
 
 const buildSystemInstructionForGeneration = (styles: StyleCategory[], distribution: StyleDistribution, targetProfile: StylometricProfile): string => {
-    let instruction = `**RÔLE:** Tu es Humanizer Z12, un écrivain fantôme expert. Ta tâche est de rédiger un texte au style parfaitement humain et naturel.
+    let instruction = `**RÔLE:** Tu es Humanizer Z12, un écrivain fantôme expert. Ta tâche est de rédiger un texte au style parfaitement humain et naturel qui doit PASSER LES DÉTECTEURS D'IA (ZeroGPT, Turnitin).
 
-**OBJECTIF:** Score d'humanisation > 95%.
+**OBJECTIF:** Score d'humanisation > 95% (Indétectable).
 **ANTI-PATTERNS (MOTS INTERDITS) :** N'utilise JAMAIS ces expressions typiques de l'IA : ${AI_PATTERNS_TO_AVOID.join(', ')}.
 
 **PROFIL STYLOMÉTRIQUE STRICT :**
@@ -89,20 +90,26 @@ ${contextSample}
 };
 
 const buildSystemInstructionForRefinement = (targetProfile: StylometricProfile, deviations: string[], previousAnalysis?: AnalysisResult): string => {
-    let instruction = `**RÔLE:** Éditeur impitoyable. Tu dois réécrire ce texte pour qu'il semble plus naturel et humain.
+    let instruction = `**RÔLE:** Éditeur impitoyable spécialisé dans l'anti-détection IA.
 
 **PROFIL CIBLE :**
 ${formatProfileForPrompt(targetProfile)}
 
-**DIAGNOSTIC PRÉCÉDENT (À CORRIGER) :**
-${deviations.length > 0 ? `L'analyseur stylistique a détecté ces défauts : ${deviations.join('; ')}.` : "Le texte manque de 'sel' humain."}
-${previousAnalysis ? `Score actuel : ${previousAnalysis.detectionRisk.score}/100.` : ""}
+**DIAGNOSTIC CRITIQUE :**
+`;
 
-**ACTIONS DE RÉÉCRITURE :**
-1.  **CASSER LA RYTHMIQUE :** Si le texte est monotone, insère une phrase de 3 mots. Puis une phrase de 40 mots.
-2.  **VOCABULAIRE :** Remplace les mots génériques ("important", "intéressant") par des mots plus sensoriels ou spécifiques.
-3.  **SUPPRESSION :** Supprime toutes les phrases de remplissage ("filler words") qui n'apportent rien.
-4.  **CONSERVATION :** Garde le sens, change la forme.
+    if (previousAnalysis?.zeroGpt && !previousAnalysis.zeroGpt.error) {
+        instruction += `⚠️ **ALERTE ZEROGPT :** Le texte actuel est détecté comme **${previousAnalysis.zeroGpt.fakePercentage}% IA**. C'est inacceptable.\n`;
+    }
+
+    instruction += `
+${deviations.length > 0 ? `Défauts stylistiques : ${deviations.join('; ')}.` : "Le texte manque de 'sel' humain."}
+
+**ACTIONS DE RÉÉCRITURE OBLIGATOIRES :**
+1.  **BRISER LES PATTERNS :** Si ZeroGPT a détecté de l'IA, c'est que la syntaxe est trop prévisible. Change l'ordre des mots. Utilise la voix passive ou des incises.
+2.  **CASSER LA RYTHMIQUE :** Insère des phrases très courtes (ex: "C'est tout.") au milieu de paragraphes complexes.
+3.  **VOCABULAIRE :** Remplace les mots génériques par des idiomes ou des mots rares.
+4.  **CONSERVATION :** Garde le sens, change radicalement la forme.
 
 Renvoie UNIQUEMENT le texte amélioré.
 `;
@@ -218,7 +225,7 @@ export const generateHumanizedText = async (
   styles: StyleCategory[],
   distribution: StyleDistribution,
   model: ModelId,
-  targetProfile: StylometricProfile, // PERFORMANCE: Accepted as arg
+  targetProfile: StylometricProfile, 
   agenticConfig: { enabled: boolean; targetScore: number; maxIterations: number },
   onStepUpdate?: (step: WorkflowStep) => void
 ): Promise<GenerationOutput> => {
@@ -237,14 +244,28 @@ export const generateHumanizedText = async (
     let currentText = await callGeminiForGeneration(generationUserPrompt, generationSystemInstruction, model);
     addLog("Génération (Brouillon)", "success", "Texte initial généré.");
 
-    // Step 2: Analysis
-    addLog("Auto-Évaluation", "running", "Analyse stylométrique avancée...");
+    // Step 2: Analysis (Internal + External)
+    addLog("Analyse & Détection", "running", "Interrogation de ZeroGPT API + Analyse Stylométrique...");
     const analysisSystemInstruction = buildSystemInstructionForAnalysis();
-    let currentAnalysis = await callGeminiForAnalysis(currentText, analysisSystemInstruction, model);
     
+    // Parallel execution for speed
+    let [analysisResponse, zeroGptResponse] = await Promise.all([
+        callGeminiForAnalysis(currentText, analysisSystemInstruction, model),
+        detectAI(currentText)
+    ]);
+    
+    let currentAnalysis = analysisResponse;
+    if (zeroGptResponse && !zeroGptResponse.error) {
+        currentAnalysis.zeroGpt = zeroGptResponse;
+        const zeroGptHumanScore = 100 - zeroGptResponse.fakePercentage;
+        // La "Vérité Terrain" ZeroGPT a un poids très fort (80%)
+        currentAnalysis.detectionRisk.score = Math.round((currentAnalysis.detectionRisk.score * 0.2) + (zeroGptHumanScore * 0.8));
+    }
+
     const generatedProfile = analyzeText(currentText);
     currentAnalysis.stylometricMatch = compareProfiles(generatedProfile, targetProfile);
-    addLog("Auto-Évaluation", "success", `Score de naturalité : ${currentAnalysis.detectionRisk.score}%`);
+    
+    addLog("Analyse & Détection", "success", `Score Global : ${currentAnalysis.detectionRisk.score}% ${currentAnalysis.zeroGpt && !currentAnalysis.zeroGpt.error ? `(ZeroGPT: ${currentAnalysis.zeroGpt.fakePercentage}% Fake)` : ''}`);
 
     // Step 3: Agentic Loop (Observe-Execute)
     if (agenticConfig.enabled) {
@@ -255,24 +276,47 @@ export const generateHumanizedText = async (
             iterations < agenticConfig.maxIterations
         ) {
             iterations++;
-            const logId = `iter-${iterations}`;
-            addLog(`Optimisation Agentique (${iterations}/${agenticConfig.maxIterations})`, "running", `Le score ${currentAnalysis.detectionRisk.score}% est sous la cible de ${agenticConfig.targetScore}%. Réécriture...`);
+            
+            // Message de log spécifique si c'est ZeroGPT qui bloque
+            const reason = currentAnalysis.zeroGpt && currentAnalysis.zeroGpt.fakePercentage > 20 
+                ? `ZeroGPT a détecté ${currentAnalysis.zeroGpt.fakePercentage}% IA.`
+                : `Score ${currentAnalysis.detectionRisk.score}% insuffisant.`;
+
+            addLog(`Optimisation Agentique (${iterations}/${agenticConfig.maxIterations})`, "running", `${reason} Réécriture intelligente...`);
             
             const deviations = currentAnalysis.stylometricMatch?.deviations || [];
             
-            // Refine
+            // Refine avec connaissance du résultat ZeroGPT
             const refinementSystemInstruction = buildSystemInstructionForRefinement(targetProfile, deviations, currentAnalysis);
-            const refinementUserPrompt = `AMÉLIORE CE TEXTE (ESSAI ${iterations}):\n"${currentText}"`;
+            const refinementUserPrompt = `AMÉLIORE CE TEXTE (ESSAI ${iterations}) pour tromper le détecteur :\n"${currentText}"`;
             
             const refinedText = await callGeminiForGeneration(refinementUserPrompt, refinementSystemInstruction, model);
             
-            // Sanity Check: If refined text is empty or too short, keep old one
             if (refinedText.length > currentText.length * 0.5) {
                 currentText = refinedText;
             }
             
-            // Re-Analyze
-            currentAnalysis = await callGeminiForAnalysis(currentText, analysisSystemInstruction, model);
+            // Re-Check ZeroGPT (Crucial dans la boucle pour voir si on s'améliore)
+            // On temporise légèrement pour ne pas spammer l'API
+            await sleep(1000); 
+            
+            const [newInternalAnalysis, newZeroGptResponse] = await Promise.all([
+                 callGeminiForAnalysis(currentText, analysisSystemInstruction, model),
+                 detectAI(currentText)
+            ]);
+
+            currentAnalysis = newInternalAnalysis;
+            
+            if (newZeroGptResponse && !newZeroGptResponse.error) {
+                currentAnalysis.zeroGpt = newZeroGptResponse;
+                const zScore = 100 - newZeroGptResponse.fakePercentage;
+                currentAnalysis.detectionRisk.score = Math.round((currentAnalysis.detectionRisk.score * 0.2) + (zScore * 0.8));
+            } else {
+                 // Fallback si ZeroGPT rate dans la boucle
+                 const oldZScore = zeroGptResponse ? (100 - zeroGptResponse.fakePercentage) : currentAnalysis.detectionRisk.score;
+                 currentAnalysis.detectionRisk.score = Math.round((currentAnalysis.detectionRisk.score * 0.4) + (oldZScore * 0.6));
+            }
+
             const newProfile = analyzeText(currentText);
             currentAnalysis.stylometricMatch = compareProfiles(newProfile, targetProfile);
 
@@ -297,7 +341,7 @@ export const refineHumanizedText = async (
     analysis: AnalysisResult,
     styles: StyleCategory[],
     model: ModelId,
-    targetProfile: StylometricProfile // PERFORMANCE: Accepted as arg
+    targetProfile: StylometricProfile
 ): Promise<GenerationOutput> => {
     const deviations = analysis.stylometricMatch?.deviations || [];
 
@@ -307,7 +351,17 @@ export const refineHumanizedText = async (
     const refinedText = await callGeminiForGeneration(refinementUserPrompt, refinementSystemInstruction, model);
     
     const analysisSystemInstruction = buildSystemInstructionForAnalysis();
-    let newAnalysis = await callGeminiForAnalysis(refinedText, analysisSystemInstruction, model);
+    
+    const [newAnalysis, zeroGptResponse] = await Promise.all([
+        callGeminiForAnalysis(refinedText, analysisSystemInstruction, model),
+        detectAI(refinedText)
+    ]);
+
+    if (zeroGptResponse && !zeroGptResponse.error) {
+        newAnalysis.zeroGpt = zeroGptResponse;
+        const zScore = 100 - zeroGptResponse.fakePercentage;
+        newAnalysis.detectionRisk.score = Math.round((newAnalysis.detectionRisk.score * 0.2) + (zScore * 0.8));
+    }
 
     const generatedProfile = analyzeText(refinedText);
     newAnalysis.stylometricMatch = compareProfiles(generatedProfile, targetProfile);
@@ -320,11 +374,21 @@ export const refineHumanizedText = async (
 
 export const analyzeExistingText = async (
     text: string,
-    targetProfile: StylometricProfile, // PERFORMANCE: Accepted as arg
+    targetProfile: StylometricProfile,
     model: ModelId
 ): Promise<GenerationOutput> => {
     const analysisSystemInstruction = buildSystemInstructionForAnalysis();
-    let analysis = await callGeminiForAnalysis(text, analysisSystemInstruction, model);
+    
+    const [analysis, zeroGptResponse] = await Promise.all([
+        callGeminiForAnalysis(text, analysisSystemInstruction, model),
+        detectAI(text)
+    ]);
+
+    if (zeroGptResponse && !zeroGptResponse.error) {
+        analysis.zeroGpt = zeroGptResponse;
+        const zScore = 100 - zeroGptResponse.fakePercentage;
+        analysis.detectionRisk.score = Math.round((analysis.detectionRisk.score * 0.2) + (zScore * 0.8));
+    }
 
     const generatedProfile = analyzeText(text);
     analysis.stylometricMatch = compareProfiles(generatedProfile, targetProfile);

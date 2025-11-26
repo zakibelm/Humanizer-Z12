@@ -6,8 +6,15 @@ import BarChartIcon from './icons/BarChartIcon';
 import ExternalLinkIcon from './icons/ExternalLinkIcon';
 import ScoreGauge from './ScoreGauge';
 import StylometricPanel from './StylometricPanel';
+import ShieldCheckIcon from './icons/ShieldCheckIcon';
 
 const getRiskConfig = (score: number) => {
+    if (score > 85) return {
+        level: 'Excellent',
+        color: 'text-green-400',
+        textColor: 'text-green-300',
+        gaugeColor: 'var(--primary)',
+    };
     if (score > 70) return {
         level: 'Faible',
         color: 'text-green-400',
@@ -45,6 +52,8 @@ const StatCard: React.FC<{ title: string; score: number; children: React.ReactNo
 const StatisticsPanel: React.FC<{ analysis: AnalysisResult; outputText: string }> = ({ analysis, outputText }) => {
     
   const config = getRiskConfig(analysis.detectionRisk.score);
+  const zeroGptScore = analysis.zeroGpt ? 100 - analysis.zeroGpt.fakePercentage : null;
+  const isZeroGptVerified = analysis.zeroGpt && !analysis.zeroGpt.error;
 
   const handleVerifyClick = () => {
     navigator.clipboard.writeText(outputText);
@@ -54,14 +63,32 @@ const StatisticsPanel: React.FC<{ analysis: AnalysisResult; outputText: string }
   return (
     <div className={`bg-card/70 border border-border rounded-lg p-5 animate-fade-in`}>
         <div className="flex flex-col md:flex-row gap-5">
-            <div className={`flex flex-col items-center justify-center p-4 rounded-lg bg-muted/40 md:w-1/3`}>
+            <div className={`flex flex-col items-center justify-center p-4 rounded-lg bg-muted/40 md:w-1/3 relative overflow-hidden`}>
                 <ScoreGauge score={analysis.detectionRisk.score} color={config.gaugeColor} />
+                 
+                 {isZeroGptVerified && (
+                     <div className="absolute top-2 right-2 bg-black/40 backdrop-blur-md border border-green-500/30 rounded-full px-2 py-0.5 flex items-center shadow-lg">
+                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse"></div>
+                        <span className="text-[10px] font-bold text-green-400 uppercase tracking-wider">ZeroGPT API</span>
+                     </div>
+                 )}
+
                  <h3 className="text-lg font-bold mt-3 text-card-foreground">
                     Score d'Humanisation
                 </h3>
                 <p className={`text-sm font-semibold ${config.color}`}>
-                    Risque de Détection : {analysis.detectionRisk.level}
+                    Risque : {analysis.detectionRisk.level}
                 </p>
+                {isZeroGptVerified && (
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                        Validé par ZeroGPT : {zeroGptScore?.toFixed(1)}% humain
+                    </p>
+                )}
+                 {analysis.zeroGpt?.error && (
+                    <p className="text-[10px] text-red-400 mt-1">
+                        Erreur ZeroGPT: {analysis.zeroGpt.error}
+                    </p>
+                )}
             </div>
 
             <div className="flex flex-col gap-4 flex-1">
@@ -76,10 +103,10 @@ const StatisticsPanel: React.FC<{ analysis: AnalysisResult; outputText: string }
                  <button 
                   onClick={handleVerifyClick}
                   className="w-full py-2 px-4 bg-secondary text-secondary-foreground font-semibold rounded-md hover:bg-secondary/90 transition-colors duration-200 flex items-center justify-center text-sm"
-                  title="Copie le texte et ouvre le détecteur ZeroGPT dans un nouvel onglet"
+                  title="Copie le texte et ouvre le site ZeroGPT pour contre-vérification manuelle"
                 >
                     <ExternalLinkIcon className="w-4 h-4 mr-2" />
-                    Vérifier sur un détecteur externe
+                    Ouvrir ZeroGPT (Vérification Manuelle)
                 </button>
             </div>
         </div>

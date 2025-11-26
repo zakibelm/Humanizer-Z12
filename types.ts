@@ -31,11 +31,20 @@ export interface StylometricProfile {
   sentenceLengthStdDev: number;
   punctuationProfile: Record<string, number>;
   fleschReadingEase: number;
+  sentenceLengths?: number[]; // Pour le graphique Burstiness
 }
 
 export interface StylometricMatch {
   similarity: number; // 0-100%
   deviations: string[];
+}
+
+export interface ZeroGptResult {
+  isReal: boolean;
+  fakePercentage: number;
+  aiWords?: number;
+  feedback?: string;
+  error?: string;
 }
 
 export interface AnalysisResult {
@@ -53,6 +62,7 @@ export interface AnalysisResult {
   };
   flaggedSentences: string[];
   stylometricMatch?: StylometricMatch;
+  zeroGpt?: ZeroGptResult; // Nouveau champ pour le résultat externe
 }
 
 export interface WorkflowStep {
