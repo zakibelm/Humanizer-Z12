@@ -118,3 +118,30 @@ export interface WorkflowStepExtended extends WorkflowStep {
   tokensUsed?: number;
   duration?: number;
 }
+
+// History System
+export interface GenerationHistoryItem {
+  id: string;
+  timestamp: number;
+  inputText: string;
+  outputText: string;
+  analysis: AnalysisResult;
+  modelAssignments: ModelAssignment[];
+  agenticConfig: AgenticConfig;
+  workflowLogs: WorkflowStep[];
+  estimatedCost?: number;
+  favorite?: boolean;
+  tags?: string[];
+}
+
+export interface ComparisonMode {
+  enabled: boolean;
+  configA: {
+    modelAssignments: ModelAssignment[];
+    label: string;
+  };
+  configB: {
+    modelAssignments: ModelAssignment[];
+    label: string;
+  };
+}
