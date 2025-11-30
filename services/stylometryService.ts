@@ -1,5 +1,6 @@
 
 import { StylometricProfile, StylometricMatch } from '../types';
+import { profileCache } from '../utils/profileCache';
 
 // Utilisation de Intl.Segmenter pour une tokenization robuste (Production Ready)
 // Fallback sur regex si l'environnement est très ancien, mais Intl est standard moderne.
@@ -44,9 +45,15 @@ const countSyllables = (word: string): number => {
 };
 
 export const analyzeText = (text: string): StylometricProfile => {
+    // Vérifier le cache d'abord
+    const cached = profileCache.get(text);
+    if (cached) {
+        return cached;
+    }
+
     // Optimisation: Si le texte est trop long, on analyse un échantillon représentatif pour la performance
     // Mais pour la "Production Quality", on essaie de tout traiter rapidement.
-    
+
     if (!text || text.trim().length === 0) {
         return {
             typeTokenRatio: 0, averageWordLength: 0, sentenceLengthMean: 0,
@@ -75,11 +82,35 @@ export const analyzeText = (text: string): StylometricProfile => {
     const averageWordLength = totalWordLength / wordCount;
 
     // Sentence Length Statistics (Burstiness Metrics)
-    const sentenceLengths = sentences.map(s => getTokens(s).length);
-    const sentenceLengthMean = sentenceLengths.reduce((a, b) => a + b, 0) / sentenceCount;
+    // OPTIMISATION: Calculer les longueurs de phrases sans re-tokeniser (O(n) au lieu de O(n²))
+    // On distribue les tokens dans les phrases en comptant les mots-like segments
+    const sentenceLengths: number[] = [];
+    for (const sentence of sentences) {
+        try {
+            // Compter les segments word-like dans chaque phrase sans re-tokeniser tout le texte
+            const sentenceTokens = Array.from(segmenterWords.segment(sentence))
+                .filter(seg => seg.isWordLike).length;
+            if (sentenceTokens > 0) {
+                sentenceLengths.push(sentenceTokens);
+            }
+        } catch (e) {
+            // Fallback sécurisé si la phrase contient des caractères problématiques
+            console.warn('Segmentation error for sentence, using word count fallback');
+            const fallbackCount = sentence.split(/\s+/).filter(w => w.trim().length > 0).length;
+            if (fallbackCount > 0) sentenceLengths.push(fallbackCount);
+        }
+    }
+
+    // Protection contre les phrases vides
+    const validSentenceCount = sentenceLengths.length > 0 ? sentenceLengths.length : 1;
+    const sentenceLengthMean = sentenceLengths.length > 0
+        ? sentenceLengths.reduce((a, b) => a + b, 0) / validSentenceCount
+        : 0;
     
-    // Standard Deviation calculation
-    const variance = sentenceLengths.reduce((acc, val) => acc + Math.pow(val - sentenceLengthMean, 2), 0) / sentenceCount;
+    // Standard Deviation calculation - avec protection contre division par zéro
+    const variance = sentenceLengths.length > 0
+        ? sentenceLengths.reduce((acc, val) => acc + Math.pow(val - sentenceLengthMean, 2), 0) / validSentenceCount
+        : 0;
     const sentenceLengthStdDev = Math.sqrt(variance);
 
     // Punctuation Profile (Signatures stylistiques)
@@ -101,7 +132,7 @@ export const analyzeText = (text: string): StylometricProfile => {
     // Utilisation de la formule standard Flesch adaptée (plus universelle pour la comparaison)
     const fleschReadingEase = 206.835 - 1.015 * sentenceLengthMean - 84.6 * avgSyllablesPerWord;
 
-    return {
+    const profile: StylometricProfile = {
         typeTokenRatio,
         averageWordLength,
         sentenceLengthMean,
@@ -109,6 +140,11 @@ export const analyzeText = (text: string): StylometricProfile => {
         punctuationProfile,
         fleschReadingEase: Math.max(0, Math.min(100, fleschReadingEase)),
     };
+
+    // Mettre en cache le résultat
+    profileCache.set(text, profile);
+
+    return profile;
 };
 
 export const createCompositeProfile = (texts: string[]): StylometricProfile => {

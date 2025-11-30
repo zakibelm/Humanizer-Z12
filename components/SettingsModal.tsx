@@ -15,11 +15,6 @@ interface SettingsModalProps {
   onSave: (settings: AppSettings) => void;
 }
 
-const GEMINI_MODELS: AIModel[] = [
-  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'gemini', contextWindow: 1000000 },
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'gemini', contextWindow: 1000000 }
-];
-
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, onSave }) => {
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
   const [activeTab, setActiveTab] = useState<'api' | 'models' | 'prompts'>('api');
@@ -27,14 +22,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
 
   if (!isOpen) return null;
 
-  const allAvailableModels = [...POPULAR_OPENROUTER_MODELS, ...GEMINI_MODELS];
+  // Tous les modèles sont disponibles via OpenRouter (y compris Gemini)
+  const allAvailableModels = POPULAR_OPENROUTER_MODELS;
 
   const handleSave = () => {
     onSave(localSettings);
     onClose();
   };
 
-  const handleApiKeyChange = (provider: 'openrouter' | 'gemini' | 'zerogpt', value: string) => {
+  const handleApiKeyChange = (provider: 'openrouter' | 'zerogpt', value: string) => {
     setLocalSettings(prev => ({
       ...prev,
       apiKeys: {
@@ -154,10 +150,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
                 Pour une production, utilisez un backend sécurisé.
               </div>
 
+              <div className="bg-primary/10 border border-primary/30 rounded-lg p-4 text-sm text-foreground mb-4">
+                <strong>💡 Info :</strong> OpenRouter donne accès à tous les modèles d'IA (Claude, GPT-4, Gemini, Llama, etc.)
+                avec une seule clé API. C'est la solution la plus simple et économique.
+              </div>
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-foreground mb-2">
-                    OpenRouter API Key <span className="text-primary">*</span>
+                    OpenRouter API Key <span className="text-primary">* (Requis)</span>
                   </label>
                   <input
                     type="password"
@@ -167,23 +168,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
                     className="w-full px-4 py-2 bg-background border border-input rounded-md text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Obtenez votre clé sur <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-primary underline">openrouter.ai/keys</a>
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-foreground mb-2">
-                    Gemini API Key <span className="text-muted-foreground text-xs">(optionnel)</span>
-                  </label>
-                  <input
-                    type="password"
-                    value={localSettings.apiKeys.gemini || ''}
-                    onChange={(e) => handleApiKeyChange('gemini', e.target.value)}
-                    placeholder="AIza..."
-                    className="w-full px-4 py-2 bg-background border border-input rounded-md text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Pour utiliser Google Gemini directement (alternative à OpenRouter)
+                    Obtenez votre clé sur <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">openrouter.ai/keys</a> •
+                    Donne accès à tous les modèles (Claude, GPT-4, Gemini, Llama, Mistral, etc.)
                   </p>
                 </div>
 
@@ -210,8 +196,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
           {activeTab === 'models' && (
             <div className="space-y-6">
               <div className="bg-primary/10 border border-primary/30 rounded-lg p-4 text-sm text-foreground">
-                <strong>🎯 Workflow Multi-Modèles :</strong> Assignez différents modèles pour chaque étape du workflow.
-                Un modèle créatif pour la génération, un modèle précis pour l'analyse, etc.
+                <strong>🎯 Workflow Multi-Modèles :</strong> Assignez différents modèles LLM pour chaque étape.
+                <br/>• <strong>Générateur</strong> : Crée le texte initial
+                <br/>• <strong>Raffineur</strong> : Paraphrase et humanise le texte
+                <br/>• <strong>Analyseur</strong> : Analyse stylistique (perplexité, burstiness)
+              </div>
+
+              <div className="bg-secondary/10 border border-secondary/30 rounded-lg p-4 text-sm text-foreground">
+                <strong>🔍 Détection IA (ZeroGPT) :</strong> ZeroGPT est utilisé <strong>automatiquement</strong> après chaque itération
+                pour détecter si le texte est encore identifiable comme IA. Activez la clé ZeroGPT dans l'onglet "Clés API"
+                pour déclencher la boucle agentique d'amélioration (~$0.01/analyse).
+                <br/><strong>Sans ZeroGPT</strong>, seule l'analyse stylistique interne est utilisée.
               </div>
 
               {/* Templates Section */}
@@ -290,17 +285,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
                             </option>
                           ))}
                         </optgroup>
-                        <optgroup label="OpenRouter - Autres">
+                        <optgroup label="OpenRouter - Autres (Google, Meta, Mistral, Qwen, GLM, Kimi...)">
                           {POPULAR_OPENROUTER_MODELS.filter(m => !m.id.startsWith('anthropic') && !m.id.startsWith('openai')).map(model => (
                             <option key={model.id} value={model.id}>
                               {model.name} {model.costPer1kTokens && `($${model.costPer1kTokens}/1k)`}
-                            </option>
-                          ))}
-                        </optgroup>
-                        <optgroup label="Google Gemini (Direct)">
-                          {GEMINI_MODELS.map(model => (
-                            <option key={model.id} value={model.id}>
-                              {model.name}
                             </option>
                           ))}
                         </optgroup>

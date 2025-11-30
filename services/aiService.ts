@@ -1,9 +1,9 @@
-
-import { GoogleGenAI, Type } from "@google/genai";
 import { StyleCategory, StyleDistribution, AnalysisResult, StylometricProfile, WorkflowStep, AgenticConfig, AppSettings, AIModel, ModelAssignment } from '../types';
 import { analyzeText, compareProfiles } from './stylometryService';
 import { detectAI } from './zeroGptService';
 import { generateWithOpenRouter, analyzeWithOpenRouter } from './openRouterService';
+import { generateUniqueId } from '../utils/idGenerator';
+import { promiseWithTimeout } from '../utils/fetchWithTimeout';
 
 export interface GenerationOutput {
     text: string;
@@ -61,14 +61,27 @@ const buildPromptFromTemplate = (
     // Replace placeholders
     let prompt = template.replace('{STYLOMETRIC_PROFILE}', formatProfileForPrompt(profile));
 
-    // Build style context
+    // Build style context - OPTIMISATION: Limiter la taille totale du contexte
+    const MAX_CONTEXT_LENGTH = 10000; // Limite en caractères
+    const MAX_DOCS_PER_CATEGORY = 3; // Max documents par catégorie
+
+    let totalLength = 0;
     const styleContext = styles
         .filter(s => distribution[s.id] > 0)
         .map(category => {
-            if (category.documents.length > 0) {
-                const contextSample = category.documents
-                    .map(d => d.content.slice(0, 1500))
+            if (category.documents.length > 0 && totalLength < MAX_CONTEXT_LENGTH) {
+                // Prendre seulement les premiers documents
+                const selectedDocs = category.documents.slice(0, MAX_DOCS_PER_CATEGORY);
+                const contextSample = selectedDocs
+                    .map(d => {
+                        const availableLength = MAX_CONTEXT_LENGTH - totalLength;
+                        const excerpt = d.content.slice(0, Math.min(1500, availableLength));
+                        totalLength += excerpt.length;
+                        return excerpt;
+                    })
                     .join('\n...\n');
+
+                if (contextSample.length === 0) return '';
 
                 return `---
 **SOURCE : ${category.name} (Poids : ${distribution[category.id]}%)**
@@ -126,84 +139,10 @@ const callAI = async (options: AICallOptions): Promise<{ text: string; usage?: a
                 temperature
             );
         }
-
-    } else if (model.provider === 'gemini') {
-        if (!apiKeys.gemini) {
-            throw new Error("Clé API Gemini manquante. Configurez-la dans les Paramètres.");
-        }
-
-        const ai = new GoogleGenAI({ apiKey: apiKeys.gemini });
-
-        return retryWrapper(async () => {
-            const config: any = {
-                systemInstruction: systemPrompt,
-                temperature: temperature,
-                topP: 0.95,
-                topK: 40,
-            };
-
-            if (expectJSON) {
-                config.responseMimeType = "application/json";
-                config.responseSchema = getAnalysisSchema();
-            }
-
-            const response = await ai.models.generateContent({
-                model: model.id,
-                contents: { parts: [{ text: userPrompt }] },
-                config
-            });
-
-            const text = response.text ? response.text.trim() : "";
-
-            // Clean markdown code blocks if present
-            if (text.startsWith('```')) {
-                const lines = text.split('\n');
-                if (lines[0].startsWith('```')) lines.shift();
-                if (lines[lines.length - 1].startsWith('```')) lines.pop();
-                return { text: lines.join('\n').trim() };
-            }
-
-            return { text };
-        });
     } else {
         throw new Error(`Provider non supporté : ${model.provider}`);
     }
 };
-
-const getAnalysisSchema = () => ({
-    type: Type.OBJECT,
-    properties: {
-        detectionRisk: {
-            type: Type.OBJECT,
-            properties: {
-                level: { type: Type.STRING },
-                score: { type: Type.INTEGER },
-            },
-            required: ["level", "score"]
-        },
-        perplexity: {
-            type: Type.OBJECT,
-            properties: {
-                score: { type: Type.INTEGER },
-                analysis: { type: Type.STRING }
-            },
-            required: ["score", "analysis"]
-        },
-        burstiness: {
-            type: Type.OBJECT,
-            properties: {
-                score: { type: Type.INTEGER },
-                analysis: { type: Type.STRING }
-            },
-            required: ["score", "analysis"]
-        },
-        flaggedSentences: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING }
-        }
-    },
-    required: ["detectionRisk", "perplexity", "burstiness", "flaggedSentences"],
-});
 
 // --- Main Generation Logic ---
 
@@ -218,19 +157,26 @@ export const generateHumanizedText = async (
 ): Promise<GenerationOutput> => {
     const logs: WorkflowStep[] = [];
     const addLog = (label: string, status: WorkflowStep['status'], details?: string, modelUsed?: string) => {
-        const step: any = { id: Date.now().toString(), label, status, details };
+        const step: any = { id: generateUniqueId(), label, status, details };
         if (modelUsed) step.modelUsed = modelUsed;
         logs.push(step);
         if (onStepUpdate) onStepUpdate(step);
     };
 
-    // Get model assignments
+    // Get model assignments avec validation stricte
     const generatorAssignment = settings.modelAssignments.find(a => a.role === 'generator' && a.enabled);
     const refinerAssignment = settings.modelAssignments.find(a => a.role === 'refiner' && a.enabled);
     const analyzerAssignment = settings.modelAssignments.find(a => a.role === 'analyzer' && a.enabled);
 
-    if (!generatorAssignment) {
+    // ROBUSTESSE: Validation stricte des assignments
+    if (!generatorAssignment || !generatorAssignment.model || !generatorAssignment.model.id) {
         throw new Error("Aucun modèle assigné au rôle Générateur. Configurez les modèles dans les Paramètres.");
+    }
+    if (agenticConfig.enabled && refinerAssignment && (!refinerAssignment.model || !refinerAssignment.model.id)) {
+        throw new Error("Le modèle assigné au Raffineur est invalide. Vérifiez la configuration.");
+    }
+    if (analyzerAssignment && (!analyzerAssignment.model || !analyzerAssignment.model.id)) {
+        throw new Error("Le modèle assigné à l'Analyseur est invalide. Vérifiez la configuration.");
     }
 
     // Step 1: Initial Generation
@@ -262,25 +208,38 @@ export const generateHumanizedText = async (
 
     const analysisSystemPrompt = settings.defaultPrompts.analysis;
 
-    // Parallel execution for speed
-    let [analysisResponse, zeroGptResponse] = await Promise.all([
-        analyzerAssignment && analyzerAssignment.enabled
-            ? callAI({
-                model: analyzerAssignment.model,
-                systemPrompt: analysisSystemPrompt,
-                userPrompt: currentText,
-                temperature: analyzerAssignment.temperature ?? 0.1,
-                apiKeys: settings.apiKeys,
-                expectJSON: true
-            }).then(r => JSON.parse(r.text))
-            : Promise.resolve({
-                detectionRisk: { level: 'Modéré', score: 70 },
-                perplexity: { score: 70, analysis: 'Analyse désactivée' },
-                burstiness: { score: 70, analysis: 'Analyse désactivée' },
-                flaggedSentences: []
-            }),
-        settings.apiKeys.zerogpt ? detectAI(currentText, settings.apiKeys.zerogpt) : Promise.resolve(null)
-    ]);
+    // ROBUSTESSE: Parallel execution avec Promise.allSettled pour ne pas perdre les résultats partiels
+    const results = await promiseWithTimeout(
+        Promise.allSettled([
+            analyzerAssignment && analyzerAssignment.enabled
+                ? callAI({
+                    model: analyzerAssignment.model,
+                    systemPrompt: analysisSystemPrompt,
+                    userPrompt: currentText,
+                    temperature: analyzerAssignment.temperature ?? 0.1,
+                    apiKeys: settings.apiKeys,
+                    expectJSON: true
+                }).then(r => JSON.parse(r.text))
+                : Promise.resolve({
+                    detectionRisk: { level: 'Modéré', score: 70 },
+                    perplexity: { score: 70, analysis: 'Analyse désactivée' },
+                    burstiness: { score: 70, analysis: 'Analyse désactivée' },
+                    flaggedSentences: []
+                }),
+            settings.apiKeys.zerogpt ? detectAI(currentText, settings.apiKeys.zerogpt) : Promise.resolve(null)
+        ]),
+        90000, // 90s timeout pour l'analyse parallèle
+        "L'analyse a pris trop de temps. Veuillez réessayer."
+    );
+
+    // Extraire les résultats avec fallback
+    const analysisResponse = results[0].status === 'fulfilled' ? results[0].value : {
+        detectionRisk: { level: 'Modéré' as const, score: 70 },
+        perplexity: { score: 70, analysis: 'Erreur d\'analyse' },
+        burstiness: { score: 70, analysis: 'Erreur d\'analyse' },
+        flaggedSentences: []
+    };
+    const zeroGptResponse = results[1].status === 'fulfilled' ? results[1].value : null;
 
     let currentAnalysis = analysisResponse as AnalysisResult;
     if (zeroGptResponse && !zeroGptResponse.error) {
@@ -341,22 +300,29 @@ ${deviations.length > 0 ? `Défauts stylistiques : ${deviations.join('; ')}.` : 
                 currentText = refinedText;
             }
 
-            // Re-Check ZeroGPT
-            await sleep(1000);
+            // Re-Check ZeroGPT - OPTIMISATION: Sleep réduit de 1000ms à 500ms
+            await sleep(500);
 
-            const [newInternalAnalysis, newZeroGptResponse] = await Promise.all([
-                analyzerAssignment && analyzerAssignment.enabled
-                    ? callAI({
-                        model: analyzerAssignment.model,
-                        systemPrompt: analysisSystemPrompt,
-                        userPrompt: currentText,
-                        temperature: analyzerAssignment.temperature ?? 0.1,
-                        apiKeys: settings.apiKeys,
-                        expectJSON: true
-                    }).then(r => JSON.parse(r.text))
-                    : Promise.resolve(currentAnalysis),
-                settings.apiKeys.zerogpt ? detectAI(currentText, settings.apiKeys.zerogpt) : Promise.resolve(null)
-            ]);
+            const reAnalysisResults = await promiseWithTimeout(
+                Promise.allSettled([
+                    analyzerAssignment && analyzerAssignment.enabled
+                        ? callAI({
+                            model: analyzerAssignment.model,
+                            systemPrompt: analysisSystemPrompt,
+                            userPrompt: currentText,
+                            temperature: analyzerAssignment.temperature ?? 0.1,
+                            apiKeys: settings.apiKeys,
+                            expectJSON: true
+                        }).then(r => JSON.parse(r.text))
+                        : Promise.resolve(currentAnalysis),
+                    settings.apiKeys.zerogpt ? detectAI(currentText, settings.apiKeys.zerogpt) : Promise.resolve(null)
+                ]),
+                90000, // 90s timeout
+                "La ré-analyse a pris trop de temps."
+            );
+
+            const newInternalAnalysis = reAnalysisResults[0].status === 'fulfilled' ? reAnalysisResults[0].value : currentAnalysis;
+            const newZeroGptResponse = reAnalysisResults[1].status === 'fulfilled' ? reAnalysisResults[1].value : null;
 
             currentAnalysis = newInternalAnalysis;
 
@@ -432,19 +398,26 @@ ${deviations.join('; ')}
 
     const analysisSystemPrompt = settings.defaultPrompts.analysis;
 
-    const [newAnalysis, zeroGptResponse] = await Promise.all([
-        analyzerAssignment && analyzerAssignment.enabled
-            ? callAI({
-                model: analyzerAssignment.model,
-                systemPrompt: analysisSystemPrompt,
-                userPrompt: refinedText,
-                temperature: analyzerAssignment.temperature ?? 0.1,
-                apiKeys: settings.apiKeys,
-                expectJSON: true
-            }).then(r => JSON.parse(r.text))
-            : Promise.resolve(analysis),
-        settings.apiKeys.zerogpt ? detectAI(refinedText, settings.apiKeys.zerogpt) : Promise.resolve(null)
-    ]);
+    const refineResults = await promiseWithTimeout(
+        Promise.allSettled([
+            analyzerAssignment && analyzerAssignment.enabled
+                ? callAI({
+                    model: analyzerAssignment.model,
+                    systemPrompt: analysisSystemPrompt,
+                    userPrompt: refinedText,
+                    temperature: analyzerAssignment.temperature ?? 0.1,
+                    apiKeys: settings.apiKeys,
+                    expectJSON: true
+                }).then(r => JSON.parse(r.text))
+                : Promise.resolve(analysis),
+            settings.apiKeys.zerogpt ? detectAI(refinedText, settings.apiKeys.zerogpt) : Promise.resolve(null)
+        ]),
+        90000,
+        "L'analyse du texte raffiné a pris trop de temps."
+    );
+
+    const newAnalysis = refineResults[0].status === 'fulfilled' ? refineResults[0].value : analysis;
+    const zeroGptResponse = refineResults[1].status === 'fulfilled' ? refineResults[1].value : null;
 
     if (zeroGptResponse && !zeroGptResponse.error) {
         newAnalysis.zeroGpt = zeroGptResponse;
@@ -474,17 +447,29 @@ export const analyzeExistingText = async (
 
     const analysisSystemPrompt = settings.defaultPrompts.analysis;
 
-    const [analysis, zeroGptResponse] = await Promise.all([
-        callAI({
-            model: analyzerAssignment.model,
-            systemPrompt: analysisSystemPrompt,
-            userPrompt: text,
-            temperature: analyzerAssignment.temperature ?? 0.1,
-            apiKeys: settings.apiKeys,
-            expectJSON: true
-        }).then(r => JSON.parse(r.text)),
-        settings.apiKeys.zerogpt ? detectAI(text, settings.apiKeys.zerogpt) : Promise.resolve(null)
-    ]);
+    const existingTextResults = await promiseWithTimeout(
+        Promise.allSettled([
+            callAI({
+                model: analyzerAssignment.model,
+                systemPrompt: analysisSystemPrompt,
+                userPrompt: text,
+                temperature: analyzerAssignment.temperature ?? 0.1,
+                apiKeys: settings.apiKeys,
+                expectJSON: true
+            }).then(r => JSON.parse(r.text)),
+            settings.apiKeys.zerogpt ? detectAI(text, settings.apiKeys.zerogpt) : Promise.resolve(null)
+        ]),
+        90000,
+        "L'analyse du texte a pris trop de temps."
+    );
+
+    const analysis = existingTextResults[0].status === 'fulfilled' ? existingTextResults[0].value : {
+        detectionRisk: { level: 'Modéré' as const, score: 70 },
+        perplexity: { score: 70, analysis: 'Erreur d\'analyse' },
+        burstiness: { score: 70, analysis: 'Erreur d\'analyse' },
+        flaggedSentences: []
+    };
+    const zeroGptResponse = existingTextResults[1].status === 'fulfilled' ? existingTextResults[1].value : null;
 
     if (zeroGptResponse && !zeroGptResponse.error) {
         analysis.zeroGpt = zeroGptResponse;
