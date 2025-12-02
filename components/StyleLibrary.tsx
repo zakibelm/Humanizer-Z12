@@ -106,13 +106,15 @@ const StyleLibrary: React.FC<StyleLibraryProps> = ({ styles, setStyles, isOpen, 
       const newDocumentsPromises = files.map(async (file: File) => {
         try {
           const content = await readAsText(file);
+          const timestamp = Date.now();
+          const random = Math.random().toString(36).substring(2, 9);
           return {
-            id: `${categoryId}-${file.name}-${Date.now()}-${Math.random()}`,
+            id: `${categoryId}-${timestamp}-${random}`,
             name: file.name,
             content: content,
           };
         } catch (error) {
-          console.error(`Error reading file ${file.name}:`, error);
+          console.error(`❌ Erreur lors de la lecture du fichier ${file.name}:`, error);
           return null;
         }
       });

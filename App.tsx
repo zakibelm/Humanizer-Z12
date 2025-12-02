@@ -27,7 +27,10 @@ const App: React.FC = () => {
     try {
       const savedUser = localStorage.getItem('z12_user_session');
       return savedUser ? JSON.parse(savedUser) : null;
-    } catch { return null; }
+    } catch (e) {
+      console.warn('Failed to load user session from localStorage:', e);
+      return null;
+    }
   });
 
   // Initialize state with lazy initializers
@@ -35,14 +38,20 @@ const App: React.FC = () => {
     try {
         const saved = localStorage.getItem('z12_styles');
         return saved ? JSON.parse(saved) : INITIAL_STYLES;
-    } catch { return INITIAL_STYLES; }
+    } catch (e) {
+        console.warn('Failed to load styles from localStorage:', e);
+        return INITIAL_STYLES;
+    }
   });
-  
+
   const [distribution, setDistribution] = useState<StyleDistribution>(() => {
     try {
         const saved = localStorage.getItem('z12_distribution');
         return saved ? JSON.parse(saved) : INITIAL_DISTRIBUTION;
-    } catch { return INITIAL_DISTRIBUTION; }
+    } catch (e) {
+        console.warn('Failed to load distribution from localStorage:', e);
+        return INITIAL_DISTRIBUTION;
+    }
   });
 
   const [inputText, setInputText] = useState<string>('');
@@ -72,7 +81,6 @@ const App: React.FC = () => {
     return {
       apiKeys: {
         openrouter: '',
-        gemini: '',
         zerogpt: ''
       },
       modelAssignments: [
@@ -135,8 +143,21 @@ const App: React.FC = () => {
   };
 
   const activeProfile = useMemo<StylometricProfile>(() => {
-    const allDocumentTexts = styles.flatMap(category => category.documents.map(doc => doc.content));
-    return createCompositeProfile(allDocumentTexts.length > 0 ? allDocumentTexts : [""]);
+    try {
+      const allDocumentTexts = styles.flatMap(category => category.documents.map(doc => doc.content));
+      return createCompositeProfile(allDocumentTexts.length > 0 ? allDocumentTexts : [""]);
+    } catch (error) {
+      console.error('❌ Erreur lors du calcul du profil stylométrique:', error);
+      // Retourner un profil par défaut en cas d'erreur
+      return {
+        typeTokenRatio: 0,
+        averageWordLength: 0,
+        sentenceLengthMean: 0,
+        sentenceLengthStdDev: 0,
+        punctuationProfile: {},
+        fleschReadingEase: 0
+      };
+    }
   }, [styles]);
   
   const handleInputTextChange = (text: string) => {
@@ -163,9 +184,9 @@ const App: React.FC = () => {
         return;
     }
 
-    // Vérifier qu'au moins une clé API est configurée
-    if (!appSettings.apiKeys.openrouter && !appSettings.apiKeys.gemini) {
-        setError("Veuillez configurer au moins une clé API (OpenRouter ou Gemini) dans les Paramètres.");
+    // Vérifier que la clé API OpenRouter est configurée
+    if (!appSettings.apiKeys.openrouter) {
+        setError("Veuillez configurer votre clé API OpenRouter dans les Paramètres.");
         setIsSettingsModalOpen(true);
         return;
     }

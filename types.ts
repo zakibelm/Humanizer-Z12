@@ -8,7 +8,7 @@ export interface Document {
 export type StyleCategoryId = 'user' | 'journalistic' | 'academic' | 'conversational' | 'creative';
 
 // AI Provider Types
-export type AIProvider = 'openrouter' | 'gemini';
+export type AIProvider = 'openrouter';
 
 export interface AIModel {
   id: string;
@@ -102,7 +102,6 @@ export interface ModelAssignment {
 export interface AppSettings {
   apiKeys: {
     openrouter?: string;
-    gemini?: string;
     zerogpt?: string;
   };
   modelAssignments: ModelAssignment[];

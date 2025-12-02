@@ -1,8 +1,34 @@
 
 import { AIModel } from '../types';
+import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 
 // OpenRouter API Documentation: https://openrouter.ai/docs
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+// OPTIMISATION: Extraction fonction utilitaire pour nettoyer markdown (évite duplication)
+const cleanMarkdownCodeBlock = (text: string): string => {
+  if (!text || !text.startsWith('```')) {
+    return text;
+  }
+
+  // Méthode optimisée : regex non-greedy avec limite
+  const match = text.match(/^```(?:json)?\s*\n?([\s\S]+?)\n?```\s*$/);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+
+  // Fallback: méthode ligne par ligne (plus sûre)
+  const lines = text.split('\n');
+  if (lines.length >= 2 && lines[0].startsWith('```')) {
+    lines.shift(); // Retirer première ligne
+    if (lines[lines.length - 1].trim().startsWith('```')) {
+      lines.pop(); // Retirer dernière ligne
+    }
+    return lines.join('\n').trim();
+  }
+
+  return text;
+};
 
 export interface OpenRouterMessage {
   role: 'system' | 'user' | 'assistant';
@@ -97,6 +123,48 @@ export const POPULAR_OPENROUTER_MODELS: AIModel[] = [
     provider: 'openrouter',
     contextWindow: 128000,
     costPer1kTokens: 0.003
+  },
+  {
+    id: 'qwen/qwen-2.5-72b-instruct',
+    name: 'Qwen 2.5 72B',
+    provider: 'openrouter',
+    contextWindow: 32768,
+    costPer1kTokens: 0.0004
+  },
+  {
+    id: 'qwen/qwen-2.5-7b-instruct',
+    name: 'Qwen 2.5 7B',
+    provider: 'openrouter',
+    contextWindow: 32768,
+    costPer1kTokens: 0.00006
+  },
+  {
+    id: 'zhipuai/glm-4-plus',
+    name: 'GLM-4 Plus',
+    provider: 'openrouter',
+    contextWindow: 128000,
+    costPer1kTokens: 0.0005
+  },
+  {
+    id: 'zhipuai/glm-4-9b',
+    name: 'GLM-4 9B',
+    provider: 'openrouter',
+    contextWindow: 128000,
+    costPer1kTokens: 0.0001
+  },
+  {
+    id: 'moonshot/moonshot-v1-8k',
+    name: 'Kimi Moonshot v1 8K',
+    provider: 'openrouter',
+    contextWindow: 8192,
+    costPer1kTokens: 0.0003
+  },
+  {
+    id: 'moonshot/moonshot-v1-32k',
+    name: 'Kimi Moonshot v1 32K',
+    provider: 'openrouter',
+    contextWindow: 32768,
+    costPer1kTokens: 0.0006
   }
 ];
 
@@ -113,21 +181,26 @@ export const callOpenRouter = async (
   }
 
   try {
-    const response = await fetch(OPENROUTER_API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': window.location.origin, // Required by OpenRouter
-        'X-Title': 'Humanizer Z12' // Optional, for rankings
+    // Ajout timeout de 60s pour éviter les requêtes bloquées
+    const response = await fetchWithTimeout(
+      OPENROUTER_API_URL,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': window.location.origin, // Required by OpenRouter
+          'X-Title': 'Humanizer Z12' // Optional, for rankings
+        },
+        body: JSON.stringify({
+          model: modelId,
+          messages: messages,
+          temperature: temperature,
+          max_tokens: maxTokens,
+        })
       },
-      body: JSON.stringify({
-        model: modelId,
-        messages: messages,
-        temperature: temperature,
-        max_tokens: maxTokens,
-      })
-    });
+      60000 // 60s timeout
+    );
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: { message: response.statusText } }));
@@ -152,14 +225,8 @@ export const callOpenRouter = async (
 
     const text = data.choices[0].message.content.trim();
 
-    // Clean markdown code blocks if present
-    let cleanedText = text;
-    if (text.startsWith('```')) {
-      const lines = text.split('\n');
-      if (lines[0].startsWith('```')) lines.shift();
-      if (lines[lines.length - 1].startsWith('```')) lines.pop();
-      cleanedText = lines.join('\n').trim();
-    }
+    // OPTIMISATION: Utiliser fonction utilitaire au lieu de code dupliqué
+    const cleanedText = cleanMarkdownCodeBlock(text);
 
     return {
       text: cleanedText,
@@ -212,11 +279,18 @@ export const analyzeWithOpenRouter = async (
     // Try to parse as JSON
     return JSON.parse(result.text);
   } catch (e) {
-    // If not valid JSON, try to extract JSON from markdown code blocks
-    const jsonMatch = result.text.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[1]);
+    // FIX CRITIQUE: Utiliser fonction utilitaire au lieu de regex greedy catastrophique
+    const cleanedText = cleanMarkdownCodeBlock(result.text);
+
+    // Si le nettoyage a changé le texte, réessayer le parsing
+    if (cleanedText !== result.text) {
+      try {
+        return JSON.parse(cleanedText);
+      } catch (parseError) {
+        // Continuer vers l'erreur finale
+      }
     }
+
     throw new Error("La réponse du modèle n'est pas un JSON valide.");
   }
 };
