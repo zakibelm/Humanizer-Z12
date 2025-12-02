@@ -14,6 +14,7 @@ import { generateHumanizedText, refineHumanizedText, analyzeExistingText } from 
 import { createCompositeProfile } from './services/stylometryService';
 import { POPULAR_OPENROUTER_MODELS } from './services/openRouterService';
 import { DEFAULT_GENERATION_PROMPT, DEFAULT_REFINEMENT_PROMPT, DEFAULT_ANALYSIS_PROMPT } from './defaultPrompts';
+import { analyticsService } from './services/analyticsService';
 
 interface UserSession {
   name: string;
@@ -32,6 +33,9 @@ const App: React.FC = () => {
       return null;
     }
   });
+
+  // Analytics - Session ID for tracking
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   // Initialize state with lazy initializers
   const [styles, setStyles] = useState<StyleCategory[]>(() => {
@@ -132,13 +136,38 @@ const App: React.FC = () => {
     localStorage.setItem('z12_app_settings', JSON.stringify(appSettings));
   }, [appSettings]);
 
-  const handleLogin = (userData: UserSession) => {
+  // Analytics: Update activity every 2 minutes (heartbeat)
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const intervalId = setInterval(() => {
+      analyticsService.updateActivity(sessionId);
+    }, 2 * 60 * 1000); // Every 2 minutes
+
+    // Cleanup on unmount
+    return () => clearInterval(intervalId);
+  }, [sessionId]);
+
+  const handleLogin = async (userData: UserSession) => {
     setUser(userData);
     localStorage.setItem('z12_user_session', JSON.stringify(userData));
+
+    // Track login in Firebase
+    const userId = userData.email.replace(/[^a-zA-Z0-9]/g, '_');
+    const newSessionId = await analyticsService.trackLogin(userId, userData.name, userData.email);
+    if (newSessionId) {
+      setSessionId(newSessionId);
+    }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Track logout in Firebase
+    if (sessionId) {
+      await analyticsService.trackLogout(sessionId);
+    }
+
     setUser(null);
+    setSessionId(null);
     localStorage.removeItem('z12_user_session');
   };
 
@@ -210,6 +239,16 @@ const App: React.FC = () => {
         );
         setOutputText(result.text);
         setAnalysisResult(result.analysis);
+
+        // Track text generation activity
+        if (user && sessionId) {
+          const userId = user.email.replace(/[^a-zA-Z0-9]/g, '_');
+          await analyticsService.trackActivity(userId, sessionId, 'text_generation', {
+            inputLength: inputText.length,
+            outputLength: result.text.length,
+            detectionScore: result.analysis.detectionRisk.score
+          });
+        }
     } catch (e) {
         console.error(e);
         if (e instanceof Error) {
@@ -220,7 +259,7 @@ const App: React.FC = () => {
     } finally {
         setIsLoading(false);
     }
-  }, [inputText, styles, distribution, agenticConfig, activeProfile, appSettings]);
+  }, [inputText, styles, distribution, agenticConfig, activeProfile, appSettings, user, sessionId]);
 
   const handleRefine = useCallback(async () => {
     if (!outputText || !analysisResult) return;
@@ -235,6 +274,15 @@ const App: React.FC = () => {
         setOutputText(result.text);
         setAnalysisResult(result.analysis);
         setWorkflowLogs(prev => prev.map(l => l.status === 'running' ? { ...l, status: 'success', details: 'Terminé.' } : l));
+
+        // Track text refinement activity
+        if (user && sessionId) {
+          const userId = user.email.replace(/[^a-zA-Z0-9]/g, '_');
+          await analyticsService.trackActivity(userId, sessionId, 'text_refinement', {
+            textLength: result.text.length,
+            detectionScore: result.analysis.detectionRisk.score
+          });
+        }
     } catch (e) {
          if (e instanceof Error) {
             setError(e.message);
@@ -244,7 +292,7 @@ const App: React.FC = () => {
     } finally {
         setIsRefining(false);
     }
-  }, [outputText, analysisResult, styles, distribution, activeProfile, appSettings]);
+  }, [outputText, analysisResult, styles, distribution, activeProfile, appSettings, user, sessionId]);
 
   const handleReanalyze = useCallback(async () => {
     if (!outputText) return;
@@ -258,6 +306,15 @@ const App: React.FC = () => {
         setAnalysisResult(result.analysis);
         setHasBeenEdited(false);
          setWorkflowLogs(prev => prev.map(l => l.status === 'running' ? { ...l, status: 'success', details: `Nouveau score : ${result.analysis.detectionRisk.score}%` } : l));
+
+        // Track text analysis activity
+        if (user && sessionId) {
+          const userId = user.email.replace(/[^a-zA-Z0-9]/g, '_');
+          await analyticsService.trackActivity(userId, sessionId, 'text_analysis', {
+            textLength: outputText.length,
+            detectionScore: result.analysis.detectionRisk.score
+          });
+        }
     } catch(e) {
         if (e instanceof Error) {
             setError(e.message);
@@ -267,7 +324,7 @@ const App: React.FC = () => {
     } finally {
         setIsRefining(false);
     }
-  }, [outputText, activeProfile, appSettings]);
+  }, [outputText, activeProfile, appSettings, user, sessionId]);
 
 
   const gridTemplateColumns = useMemo(() => {
