@@ -54,7 +54,7 @@ const buildSystemInstructionForGeneration = (styles: StyleCategory[], distributi
 **TACHE UNIQUE:** Réécrire le texte fourni pour supprimer la "signature IA" (patterns répétitifs, ton monotone, structure académique) SANS CHANGER LE SENS NI AJOUTER D'INFORMATION.
 
 **RÈGLES D'OR DE LA RÉÉCRITURE :**
-1. **CONSERVATION DU SENS :** Ne change pas l'histoire, les faits ou les données. Dis la même chose, mais différemment.
+1. **CONSERVATION DU SENS :** Ne change pas l'histoire, les faits or les données. Dis la même chose, mais différemment.
 2. **CASSER LES STRUCTURES :** L'IA fait "Sujet + Verbe + Complément". L'humain fait des inversions, des incises, des questions rhétoriques. Utilise-les.
 3. **VOCABULAIRE :** Remplace les mots "lisses" par des mots plus "granuleux", familiers ou imagés.
 4. **FORMAT :** Renvoie UNIQUEMENT le texte humanisé. Pas d'intro, pas de "Voici la version réécrite".
@@ -103,6 +103,7 @@ ${formatProfileForPrompt(targetProfile)}
 **DIAGNOSTIC CRITIQUE :**
 `;
 
+    // Fix: access optional zeroGpt safely
     if (previousAnalysis?.zeroGpt && !previousAnalysis.zeroGpt.error) {
         instruction += `⚠️ **ALERTE ZEROGPT :** Le texte est détecté à **${previousAnalysis.zeroGpt.fakePercentage}% IA**. Il faut être plus radical dans la réécriture.\n`;
     }
@@ -171,23 +172,24 @@ const analysisSchema = {
 
 // --- API Call Wrappers ---
 
-const callGeminiForGeneration = async (userPrompt: string, systemInstruction: string, model: ModelId, apiKey: string): Promise<string> => {
-    if (!apiKey) throw new Error("Clé API Google Gemini manquante dans les paramètres.");
-    
-    const ai = new GoogleGenAI({ apiKey });
+const callGeminiForGeneration = async (userPrompt: string, systemInstruction: string, model: ModelId): Promise<string> => {
+    // Fix: Follow @google/genai guidelines - use process.env.API_KEY directly
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     return retryWrapper(async () => {
+        // Fix: Use ai.models.generateContent directly
         const response = await ai.models.generateContent({
-          model,
-          contents: { parts: [{ text: userPrompt }] },
+          model: model || 'gemini-3-flash-preview',
+          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
           config: {
             systemInstruction,
-            temperature: 0.9, // Légèrement réduit pour éviter les hallucinations hors sujet, mais assez haut pour le style
+            temperature: 0.9, 
             topP: 0.95,
             topK: 40,
           }
         });
         
+        // Fix: Use .text property instead of .text() method
         const text = response.text ? response.text.trim() : "";
         if (text.startsWith('```')) {
             const lines = text.split('\n');
@@ -199,16 +201,16 @@ const callGeminiForGeneration = async (userPrompt: string, systemInstruction: st
     });
 };
 
-const callGeminiForAnalysis = async (textToAnalyze: string, systemInstruction: string, model: ModelId, apiKey: string): Promise<AnalysisResult> => {
-    if (!apiKey) throw new Error("Clé API Google Gemini manquante dans les paramètres.");
-    
-    const ai = new GoogleGenAI({ apiKey });
+const callGeminiForAnalysis = async (textToAnalyze: string, systemInstruction: string, model: ModelId): Promise<AnalysisResult> => {
+    // Fix: Follow @google/genai guidelines - use process.env.API_KEY directly
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const userPrompt = `ANALYSE CE TEXTE :\n${textToAnalyze}`;
     
     return retryWrapper(async () => {
+        // Fix: Use ai.models.generateContent directly
         const response = await ai.models.generateContent({
-            model,
-            contents: { parts: [{ text: userPrompt }] },
+            model: model || 'gemini-3-flash-preview',
+            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
             config: {
                 systemInstruction,
                 responseMimeType: "application/json",
@@ -218,6 +220,7 @@ const callGeminiForAnalysis = async (textToAnalyze: string, systemInstruction: s
         });
         
         try {
+            // Fix: Use .text property
             return JSON.parse(response.text || "{}");
         } catch (e) {
             throw new Error("Échec du parsing de l'analyse JSON.");
@@ -258,7 +261,7 @@ export const generateHumanizedText = async (
         generationUserPrompt = `Voici le texte IA à HUMANISER (Réécriture stricte, garde le sens) :\n\n"${inputText}"`;
     }
     
-    let currentText = await callGeminiForGeneration(generationUserPrompt, generationSystemInstruction, settings.model, settings.googleApiKey);
+    let currentText = await callGeminiForGeneration(generationUserPrompt, generationSystemInstruction, settings.model);
     addLog("Réécriture Humanisée", "success", "Première passe effectuée.");
 
     // Step 2: Analysis (Internal + External)
@@ -266,18 +269,20 @@ export const generateHumanizedText = async (
     const analysisSystemInstruction = buildSystemInstructionForAnalysis();
     
     let [analysisResponse, zeroGptResponse] = await Promise.all([
-        callGeminiForAnalysis(currentText, analysisSystemInstruction, settings.model, settings.googleApiKey),
+        callGeminiForAnalysis(currentText, analysisSystemInstruction, settings.model),
         detectAI(currentText, settings.zeroGptApiKey)
     ]);
     
     let currentAnalysis = analysisResponse;
     if (zeroGptResponse && !zeroGptResponse.error) {
+        // Fix: AnalysisResult now has optional zeroGpt
         currentAnalysis.zeroGpt = zeroGptResponse;
         const zeroGptHumanScore = 100 - zeroGptResponse.fakePercentage;
         currentAnalysis.detectionRisk.score = Math.round((currentAnalysis.detectionRisk.score * 0.2) + (zeroGptHumanScore * 0.8));
     }
 
     const generatedProfile = analyzeText(currentText);
+    // Fix: AnalysisResult now has optional stylometricMatch
     currentAnalysis.stylometricMatch = compareProfiles(generatedProfile, targetProfile);
     
     addLog("Audit Détection", "success", `Score Actuel : ${currentAnalysis.detectionRisk.score}% ${currentAnalysis.zeroGpt && !currentAnalysis.zeroGpt.error ? `(ZeroGPT: ${currentAnalysis.zeroGpt.fakePercentage}% IA)` : ''}`);
@@ -292,18 +297,20 @@ export const generateHumanizedText = async (
         ) {
             iterations++;
             
+            // Fix: safely access zeroGpt
             const reason = currentAnalysis.zeroGpt && currentAnalysis.zeroGpt.fakePercentage > 20 
                 ? `ZeroGPT a détecté ${currentAnalysis.zeroGpt.fakePercentage}% IA.`
                 : `Score ${currentAnalysis.detectionRisk.score}% insuffisant.`;
 
             addLog(`Cycle d'Optimisation (${iterations}/${agenticConfig.maxIterations})`, "running", `${reason} Modification structurelle en cours...`);
             
+            // Fix: safely access stylometricMatch
             const deviations = currentAnalysis.stylometricMatch?.deviations || [];
             
             const refinementSystemInstruction = buildSystemInstructionForRefinement(targetProfile, deviations, currentAnalysis);
             const refinementUserPrompt = `HUMANISE ENCORE CE TEXTE (ESSAI ${iterations}) - Il est encore détecté comme IA :\n"${currentText}"`;
             
-            const refinedText = await callGeminiForGeneration(refinementUserPrompt, refinementSystemInstruction, settings.model, settings.googleApiKey);
+            const refinedText = await callGeminiForGeneration(refinementUserPrompt, refinementSystemInstruction, settings.model);
             
             // Sécurité : Si le texte raffiné est étrangement court (erreur), on garde l'ancien
             if (refinedText.length > currentText.length * 0.5) {
@@ -313,22 +320,25 @@ export const generateHumanizedText = async (
             await sleep(1000); // Pause pour éviter rate limit
             
             const [newInternalAnalysis, newZeroGptResponse] = await Promise.all([
-                 callGeminiForAnalysis(currentText, analysisSystemInstruction, settings.model, settings.googleApiKey),
+                 callGeminiForAnalysis(currentText, analysisSystemInstruction, settings.model),
                  detectAI(currentText, settings.zeroGptApiKey)
             ]);
 
             currentAnalysis = newInternalAnalysis;
             
             if (newZeroGptResponse && !newZeroGptResponse.error) {
+                // Fix: AnalysisResult now has zeroGpt
                 currentAnalysis.zeroGpt = newZeroGptResponse;
                 const zScore = 100 - newZeroGptResponse.fakePercentage;
                 currentAnalysis.detectionRisk.score = Math.round((currentAnalysis.detectionRisk.score * 0.2) + (zScore * 0.8));
             } else {
+                 // Fix: access zeroGptResponse safely
                  const oldZScore = zeroGptResponse ? (100 - zeroGptResponse.fakePercentage) : currentAnalysis.detectionRisk.score;
                  currentAnalysis.detectionRisk.score = Math.round((currentAnalysis.detectionRisk.score * 0.4) + (oldZScore * 0.6));
             }
 
             const newProfile = analyzeText(currentText);
+            // Fix: AnalysisResult now has stylometricMatch
             currentAnalysis.stylometricMatch = compareProfiles(newProfile, targetProfile);
 
             if (currentAnalysis.detectionRisk.score >= agenticConfig.targetScore) {
@@ -354,27 +364,30 @@ export const refineHumanizedText = async (
     targetProfile: StylometricProfile,
     settings: { googleApiKey: string; zeroGptApiKey: string; model: ModelId }
 ): Promise<GenerationOutput> => {
+    // Fix: AnalysisResult now has stylometricMatch
     const deviations = analysis.stylometricMatch?.deviations || [];
 
     const refinementSystemInstruction = buildSystemInstructionForRefinement(targetProfile, deviations, analysis);
     const refinementUserPrompt = `CORRIGE CES PHRASES POUR QU'ELLES SOIENT HUMAINES :\n"${textToRefine}"\n\nConcentre-toi sur les passages marqués comme artificiels : ${analysis.flaggedSentences.join(', ')}`;
     
-    const refinedText = await callGeminiForGeneration(refinementUserPrompt, refinementSystemInstruction, settings.model, settings.googleApiKey);
+    const refinedText = await callGeminiForGeneration(refinementUserPrompt, refinementSystemInstruction, settings.model);
     
     const analysisSystemInstruction = buildSystemInstructionForAnalysis();
     
     const [newAnalysis, zeroGptResponse] = await Promise.all([
-        callGeminiForAnalysis(refinedText, analysisSystemInstruction, settings.model, settings.googleApiKey),
+        callGeminiForAnalysis(refinedText, analysisSystemInstruction, settings.model),
         detectAI(refinedText, settings.zeroGptApiKey)
     ]);
 
     if (zeroGptResponse && !zeroGptResponse.error) {
+        // Fix: AnalysisResult now has zeroGpt
         newAnalysis.zeroGpt = zeroGptResponse;
         const zScore = 100 - zeroGptResponse.fakePercentage;
         newAnalysis.detectionRisk.score = Math.round((newAnalysis.detectionRisk.score * 0.2) + (zScore * 0.8));
     }
 
     const generatedProfile = analyzeText(refinedText);
+    // Fix: AnalysisResult now has stylometricMatch
     newAnalysis.stylometricMatch = compareProfiles(generatedProfile, targetProfile);
     
     return {
@@ -391,17 +404,19 @@ export const analyzeExistingText = async (
     const analysisSystemInstruction = buildSystemInstructionForAnalysis();
     
     const [analysis, zeroGptResponse] = await Promise.all([
-        callGeminiForAnalysis(text, analysisSystemInstruction, settings.model, settings.googleApiKey),
+        callGeminiForAnalysis(text, analysisSystemInstruction, settings.model),
         detectAI(text, settings.zeroGptApiKey)
     ]);
 
     if (zeroGptResponse && !zeroGptResponse.error) {
+        // Fix: AnalysisResult now has zeroGpt
         analysis.zeroGpt = zeroGptResponse;
         const zScore = 100 - zeroGptResponse.fakePercentage;
         analysis.detectionRisk.score = Math.round((analysis.detectionRisk.score * 0.2) + (zScore * 0.8));
     }
 
     const generatedProfile = analyzeText(text);
+    // Fix: AnalysisResult now has stylometricMatch
     analysis.stylometricMatch = compareProfiles(generatedProfile, targetProfile);
 
     return {

@@ -6,7 +6,6 @@ export interface Document {
 }
 
 export type StyleCategoryId = 'user' | 'journalistic' | 'academic' | 'conversational' | 'creative';
-export type ModelId = 'gemini-2.5-pro' | 'gemini-2.5-flash';
 
 export interface StyleCategory {
   id: StyleCategoryId;
@@ -31,14 +30,15 @@ export interface StylometricProfile {
   sentenceLengthStdDev: number;
   punctuationProfile: Record<string, number>;
   fleschReadingEase: number;
-  sentenceLengths?: number[]; // Pour le graphique Burstiness
 }
 
+// Add StylometricMatch interface
 export interface StylometricMatch {
-  similarity: number; // 0-100%
+  similarity: number;
   deviations: string[];
 }
 
+// Add ZeroGptResult interface
 export interface ZeroGptResult {
   isReal: boolean;
   fakePercentage: number;
@@ -49,20 +49,15 @@ export interface ZeroGptResult {
 
 export interface AnalysisResult {
   detectionRisk: {
-    level: 'Faible' | 'Modéré' | 'Élevé';
-    score: number; // Overall human-likeness score 0-100
+    level: 'Faible' | 'Modéré' | 'Élevé' | 'Excellent';
+    score: number;
   };
-  perplexity: {
-    score: number; // 0-100
-    analysis: string;
-  };
-  burstiness: {
-    score: number; // 0-100
-    analysis: string;
-  };
+  perplexity: { score: number; analysis: string; };
+  burstiness: { score: number; analysis: string; };
   flaggedSentences: string[];
+  // Add optional zeroGpt and stylometricMatch properties
+  zeroGpt?: ZeroGptResult;
   stylometricMatch?: StylometricMatch;
-  zeroGpt?: ZeroGptResult; // Nouveau champ pour le résultat externe
 }
 
 export interface WorkflowStep {
@@ -72,15 +67,25 @@ export interface WorkflowStep {
   details?: string;
 }
 
+export interface IterationStepConfig {
+  id: string;
+  active: boolean;
+  agentName: string;
+  model: string;
+  systemPrompt: string;
+}
+
+export interface GlobalSettings {
+  openRouterApiKey: string;
+  zeroGptApiKey: string;
+}
+
+// Add AgenticConfig interface
 export interface AgenticConfig {
   enabled: boolean;
   targetScore: number;
   maxIterations: number;
 }
 
-export interface GlobalSettings {
-  googleApiKey: string;
-  zeroGptApiKey: string;
-  selectedModel: ModelId;
-  systemPromptOverride: string; // Pour customiser l'instruction système
-}
+// Add ModelId type
+export type ModelId = string;

@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import StyleLibrary from './components/StyleLibrary';
 import ConfigurationPanel from './components/ConfigurationPanel';
@@ -7,275 +8,145 @@ import SettingsModal from './components/SettingsModal';
 import LoginScreen from './components/LoginScreen';
 import QuestionMarkCircleIcon from './components/icons/QuestionMarkCircleIcon';
 import AdjustmentsIcon from './components/icons/AdjustmentsIcon';
-import { INITIAL_STYLES, INITIAL_DISTRIBUTION, MAX_INPUT_CHARS } from './constants';
-import { StyleCategory, StyleDistribution, AnalysisResult, ModelId, WorkflowStep, AgenticConfig, StylometricProfile, GlobalSettings } from './types';
-import { generateHumanizedText, refineHumanizedText, analyzeExistingText } from './services/geminiService';
-import { createCompositeProfile } from './services/stylometryService';
+import { INITIAL_STYLES, MAX_INPUT_CHARS } from './constants';
+import { StyleCategory, AnalysisResult, WorkflowStep, IterationStepConfig, GlobalSettings } from './types';
+import { callOpenRouter, runAnalysis } from './services/openRouterService';
+import { detectAI } from './services/zeroGptService';
 
-interface UserSession {
-  name: string;
-  email: string;
-  avatar?: string;
-}
-
-const DEFAULT_SYSTEM_PROMPT = `<u><b><u><b>IMPORTANT : JE NE VEUX PAS QUE TU AGISSES COMME UN GHOSTWRITER MAIS PLUTÔT COMME UN ÉDITEUR CORRECTEUR.</b></u></b></u>
-
-**RÔLE:** Tu es Humanizer Z12, un éditeur correcteur expert. Ta tâche est de réviser le texte pour lui donner un style parfaitement humain et naturel qui doit PASSER LES DÉTECTEURS D'IA.
-
-**MÉTHODE DE RÉDACTION "HUMAN TOUCH" :**
-1. **Imperfections :** Introduis 1-2 connecteurs logiques un peu flous ou familiers (ex: "Bon,", "En fait,", "Du coup,").
-2. **Opinion :** Prends position légèrement. L'IA est neutre, l'humain est subjectif.
-3. **Structure :** Évite les structures "Intro - 3 Paragraphes - Conclusion". Sois plus organique.`;
+const DEFAULT_WORKFLOW: IterationStepConfig[] = [
+  {
+    id: '1',
+    active: true,
+    agentName: 'Éditeur Correcteur',
+    model: 'anthropic/claude-3.5-sonnet',
+    systemPrompt: `IMPORTANT : Tu es Humanizer Z12. Ta mission est de réviser le texte pour le rendre humain.`
+  },
+  {
+    id: '2',
+    active: false,
+    agentName: 'Expert Burstiness',
+    model: 'meta-llama/llama-3.1-405b',
+    systemPrompt: `Casse la monotonie des phrases. Alterne entre phrases très courtes et complexes.`
+  },
+  {
+    id: '3',
+    active: false,
+    agentName: 'Anti-Détection',
+    model: 'google/gemini-2.0-flash-exp',
+    systemPrompt: `Remplace les mots trop prévisibles par des nuances humaines plus rares.`
+  },
+  {
+    id: '4',
+    active: false,
+    agentName: 'Styliste Mimétique',
+    model: 'openai/gpt-4o',
+    systemPrompt: `Applique un ton conversationnel direct avec des questions rhétoriques.`
+  },
+  {
+    id: '5',
+    active: false,
+    agentName: 'Polisseur Final',
+    model: 'anthropic/claude-3-opus',
+    systemPrompt: `Ajoute des imperfections humaines naturelles (Bon, En fait, etc.) sans changer le sens.`
+  }
+];
 
 const App: React.FC = () => {
-  // Auth State
-  const [user, setUser] = useState<UserSession | null>(() => {
+  const [user, setUser] = useState<any>(() => {
     try {
-      const savedUser = localStorage.getItem('z12_user_session');
-      return savedUser ? JSON.parse(savedUser) : null;
+      const saved = localStorage.getItem('z12_user');
+      return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
 
-  // Global Settings State (API Keys, etc.)
   const [settings, setSettings] = useState<GlobalSettings>(() => {
     try {
       const saved = localStorage.getItem('z12_settings');
-      return saved ? JSON.parse(saved) : {
-        googleApiKey: process.env.API_KEY || '',
-        zeroGptApiKey: 'ba51f26b-7e8b-423e-bf2d-6c49e2210840',
-        selectedModel: 'gemini-3-pro-preview' as ModelId,
-        systemPromptOverride: DEFAULT_SYSTEM_PROMPT
-      };
-    } catch {
-      return {
-        googleApiKey: '',
-        zeroGptApiKey: '',
-        selectedModel: 'gemini-3-pro-preview' as ModelId,
-        systemPromptOverride: DEFAULT_SYSTEM_PROMPT
-      };
-    }
+      return saved ? JSON.parse(saved) : { openRouterApiKey: '', zeroGptApiKey: '' };
+    } catch { return { openRouterApiKey: '', zeroGptApiKey: '' }; }
   });
 
-  const [styles, setStyles] = useState<StyleCategory[]>(() => {
+  const [workflow, setWorkflow] = useState<IterationStepConfig[]>(() => {
     try {
-        const saved = localStorage.getItem('z12_styles');
-        return saved ? JSON.parse(saved) : INITIAL_STYLES;
-    } catch { return INITIAL_STYLES; }
-  });
-  
-  const [distribution, setDistribution] = useState<StyleDistribution>(() => {
-    try {
-        const saved = localStorage.getItem('z12_distribution');
-        return saved ? JSON.parse(saved) : INITIAL_DISTRIBUTION;
-    } catch { return INITIAL_DISTRIBUTION; }
+      const saved = localStorage.getItem('z12_workflow');
+      return saved ? JSON.parse(saved) : DEFAULT_WORKFLOW;
+    } catch { return DEFAULT_WORKFLOW; }
   });
 
-  const [inputText, setInputText] = useState<string>('');
-  const [outputText, setOutputText] = useState<string>('');
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [isRefining, setIsRefining] = useState<boolean>(false);
+  const [styles, setStyles] = useState<StyleCategory[]>(INITIAL_STYLES);
+  const [inputText, setInputText] = useState('');
+  const [outputText, setOutputText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [isStyleLibraryOpen, setIsStyleLibraryOpen] = useState(true);
   const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(true);
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [hasBeenEdited, setHasBeenEdited] = useState<boolean>(false);
-  
-  // Agentic State
-  const [agenticConfig, setAgenticConfig] = useState<AgenticConfig>({
-      enabled: true, 
-      targetScore: 92,
-      maxIterations: 3
-  });
   const [workflowLogs, setWorkflowLogs] = useState<WorkflowStep[]>([]);
-
-  // Persistence Effects
-  useEffect(() => {
-    localStorage.setItem('z12_styles', JSON.stringify(styles));
-  }, [styles]);
-
-  useEffect(() => {
-    localStorage.setItem('z12_distribution', JSON.stringify(distribution));
-  }, [distribution]);
 
   useEffect(() => {
     localStorage.setItem('z12_settings', JSON.stringify(settings));
-  }, [settings]);
-
-  const handleLogin = (userData: UserSession) => {
-    setUser(userData);
-    localStorage.setItem('z12_user_session', JSON.stringify(userData));
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('z12_user_session');
-  };
-
-  const activeProfile = useMemo<StylometricProfile>(() => {
-    const allDocumentTexts = styles.flatMap(category => category.documents.map(doc => doc.content));
-    return createCompositeProfile(allDocumentTexts.length > 0 ? allDocumentTexts : [""]);
-  }, [styles]);
-  
-  const handleInputTextChange = (text: string) => {
-    setInputText(text);
-    if (error) setError(null);
-  };
-
-  const handleOutputTextChange = (text: string) => {
-    setOutputText(text);
-    setHasBeenEdited(true);
-  };
-
-  const handleModelChange = (model: ModelId) => {
-      setSettings(prev => ({ ...prev, selectedModel: model }));
-  };
+    localStorage.setItem('z12_workflow', JSON.stringify(workflow));
+  }, [settings, workflow]);
 
   const handleGenerate = useCallback(async () => {
-    if (!inputText.trim() || inputText.length > MAX_INPUT_CHARS) {
-        if(inputText.length > MAX_INPUT_CHARS) {
-            setError(`Le texte ne peut pas dépasser ${MAX_INPUT_CHARS} caractères.`);
-        }
-        return;
-    }
-
-    if (!settings.googleApiKey) {
-        setError("Clé API Google manquante. Veuillez la configurer dans les paramètres.");
-        setIsSettingsModalOpen(true);
-        return;
-    }
-
-    const hasDocs = styles.some(s => s.documents.length > 0);
-    if (!hasDocs) {
-        setError("Veuillez ajouter au moins un document à la bibliothèque pour définir un style.");
-        return;
+    if (!inputText.trim()) return;
+    if (!settings.openRouterApiKey) {
+      setError("Configurez votre clé OpenRouter.");
+      setIsSettingsModalOpen(true);
+      return;
     }
 
     setIsLoading(true);
-    setOutputText('');
-    setAnalysisResult(null);
     setError(null);
-    setHasBeenEdited(false);
     setWorkflowLogs([]);
+    let currentText = inputText;
 
     try {
-        const result = await generateHumanizedText(
-            inputText, 
-            styles, 
-            distribution, 
-            activeProfile, 
-            agenticConfig,
-            {
-                googleApiKey: settings.googleApiKey,
-                zeroGptApiKey: settings.zeroGptApiKey,
-                model: settings.selectedModel,
-                systemPrompt: settings.systemPromptOverride || DEFAULT_SYSTEM_PROMPT
-            },
-            (step) => setWorkflowLogs(prev => [...prev, step])
-        );
-        setOutputText(result.text);
-        setAnalysisResult(result.analysis);
-    } catch (e) {
-        console.error(e);
-        if (e instanceof Error) {
-            setError(e.message);
-        } else {
-            setError("Une erreur inattendue est survenue.");
-        }
+      const activeSteps = workflow.filter(s => s.active);
+      if (activeSteps.length === 0) throw new Error("Activez au moins un agent.");
+      
+      for (const stepConfig of activeSteps) {
+        const logId = Date.now().toString();
+        setWorkflowLogs(prev => [...prev, { id: logId, label: stepConfig.agentName, status: 'running', details: `${stepConfig.model}` }]);
+        currentText = await callOpenRouter(currentText, stepConfig, settings.openRouterApiKey);
+        setWorkflowLogs(prev => prev.map(l => l.id === logId ? { ...l, status: 'success', details: `Terminé.` } : l));
+      }
+
+      setOutputText(currentText);
+      const analysisLogId = "analysis-" + Date.now();
+      setWorkflowLogs(prev => [...prev, { id: analysisLogId, label: "Audit Authentique", status: 'running', details: "Calcul du score..." }]);
+      
+      const analysis = await runAnalysis(currentText, settings.openRouterApiKey);
+      const zeroGpt = await detectAI(currentText, settings.zeroGptApiKey);
+      
+      if (zeroGpt && !zeroGpt.error) {
+        analysis.detectionRisk.score = Math.round((analysis.detectionRisk.score + (100 - zeroGpt.fakePercentage)) / 2);
+      }
+      
+      setAnalysisResult(analysis);
+      setWorkflowLogs(prev => prev.map(l => l.id === analysisLogId ? { ...l, status: 'success', details: `${analysis.detectionRisk.score}%` } : l));
+    } catch (e: any) {
+      setError(e.message);
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
-  }, [inputText, styles, distribution, settings, agenticConfig, activeProfile]);
+  }, [inputText, workflow, settings]);
 
-  const handleRefine = useCallback(async () => {
-    if (!outputText || !analysisResult) return;
-    if (!settings.googleApiKey) {
-        setError("Clé API Google manquante.");
-        return;
-    }
+  const gridStyles = useMemo(() => ({
+    display: 'grid',
+    gridTemplateColumns: `${isStyleLibraryOpen ? '320px' : '60px'} 1fr ${isConfigPanelOpen ? '380px' : '60px'}`,
+    transition: 'grid-template-columns 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+    width: '100%',
+    height: '100%',
+    gap: '1rem'
+  }), [isStyleLibraryOpen, isConfigPanelOpen]);
 
-    setIsRefining(true);
-    setError(null);
-    setHasBeenEdited(false);
-    setWorkflowLogs(prev => [...prev, { id: Date.now().toString(), label: "Raffinement agentique", status: "running", details: "Ajustement précis des segments artificiels..."}]);
-    
-    try {
-        const result = await refineHumanizedText(
-            outputText, 
-            analysisResult, 
-            styles, 
-            activeProfile,
-            {
-                googleApiKey: settings.googleApiKey,
-                zeroGptApiKey: settings.zeroGptApiKey,
-                model: settings.selectedModel
-            }
-        );
-        setOutputText(result.text);
-        setAnalysisResult(result.analysis);
-        setWorkflowLogs(prev => prev.map(l => l.status === 'running' ? { ...l, status: 'success', details: 'Raffinement terminé avec succès.' } : l));
-    } catch (e) {
-         if (e instanceof Error) {
-            setError(e.message);
-        } else {
-            setError("Une erreur inattendue est survenue lors de l'amélioration.");
-        }
-    } finally {
-        setIsRefining(false);
-    }
-  }, [outputText, analysisResult, styles, settings, activeProfile]);
-
-  const handleReanalyze = useCallback(async () => {
-    if (!outputText) return;
-    if (!settings.googleApiKey) {
-        setError("Clé API Google manquante.");
-        return;
-    }
-
-    setIsRefining(true);
-    setError(null);
-    setWorkflowLogs(prev => [...prev, { id: Date.now().toString(), label: "Audit de réécriture", status: "running", details: "Validation stylométrique des modifications manuelles..."}]);
-
-    try {
-        const result = await analyzeExistingText(
-            outputText, 
-            activeProfile,
-            {
-                googleApiKey: settings.googleApiKey,
-                zeroGptApiKey: settings.zeroGptApiKey,
-                model: settings.selectedModel
-            }
-        );
-        setOutputText(result.text); 
-        setAnalysisResult(result.analysis);
-        setHasBeenEdited(false);
-         setWorkflowLogs(prev => prev.map(l => l.status === 'running' ? { ...l, status: 'success', details: `Nouveau score d'authenticité : ${result.analysis.detectionRisk.score}%` } : l));
-    } catch(e) {
-        if (e instanceof Error) {
-            setError(e.message);
-        } else {
-            setError("Une erreur inattendue est survenue lors de la ré-analyse.");
-        }
-    } finally {
-        setIsRefining(false);
-    }
-  }, [outputText, activeProfile, settings]);
-
-
-  const gridTemplateColumns = useMemo(() => {
-    const leftCol = isStyleLibraryOpen ? 'minmax(300px, 1fr)' : '48px';
-    const rightCol = isConfigPanelOpen ? 'minmax(300px, 1fr)' : '48px';
-    const midCol = 'minmax(600px, 3fr)';
-    return `${leftCol} ${midCol} ${rightCol}`;
-  }, [isStyleLibraryOpen, isConfigPanelOpen]);
-
-  if (!user) {
-    return <LoginScreen onLogin={handleLogin} />;
-  }
+  if (!user) return <LoginScreen onLogin={(u) => { setUser(u); localStorage.setItem('z12_user', JSON.stringify(u)); }} />;
 
   return (
-    <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8 relative selection:bg-primary/30 selection:text-white">
+    <div className="h-screen w-screen flex flex-col bg-background text-foreground font-sans overflow-hidden">
       <DocumentationModal isOpen={isDocModalOpen} onClose={() => setIsDocModalOpen(false)} />
       <SettingsModal 
         isOpen={isSettingsModalOpen} 
@@ -284,113 +155,79 @@ const App: React.FC = () => {
         onSave={setSettings}
       />
       
-      <div className="fixed top-4 left-4 z-40 flex items-center gap-3 bg-card/80 backdrop-blur-md p-2 rounded-full border border-border shadow-sm group hover:border-primary/50 transition-all">
-        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden border border-primary/30 text-primary font-bold text-xs">
-           {user.name.charAt(0)}
+      {/* Header compact */}
+      <header className="h-16 flex items-center justify-between px-6 border-b border-border bg-card/30 backdrop-blur-md flex-shrink-0 z-50">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/20">
+            <span className="text-white font-bold text-xl">Z</span>
+          </div>
+          <h1 className="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-foreground to-primary">Humanizer Z12</h1>
         </div>
-        <div className="flex flex-col max-w-0 group-hover:max-w-[150px] transition-all duration-300 overflow-hidden whitespace-nowrap">
-            <span className="text-xs font-bold text-foreground">{user.name}</span>
-            <button onClick={handleLogout} className="text-[10px] text-muted-foreground hover:text-destructive text-left">Se déconnecter</button>
-        </div>
-      </div>
 
-      <div className="fixed top-4 right-4 sm:top-6 sm:right-6 z-40 flex gap-3">
-        <button 
-            onClick={() => setIsSettingsModalOpen(true)}
-            className="p-2 bg-card/80 backdrop-blur-md border border-border rounded-full shadow-lg hover:bg-card hover:text-primary transition-all duration-300 group"
-            title="Paramètres"
-        >
-            <AdjustmentsIcon className="w-6 h-6 text-muted-foreground group-hover:text-primary" />
-        </button>
-        <button 
-            onClick={() => setIsDocModalOpen(true)}
-            className="p-2 bg-card/80 backdrop-blur-md border border-border rounded-full shadow-lg hover:bg-card hover:text-primary transition-all duration-300 group"
-            title="Documentation"
-        >
-            <QuestionMarkCircleIcon className="w-6 h-6 text-muted-foreground group-hover:text-primary" />
-        </button>
-      </div>
-
-      <header className="text-center mb-10 flex-shrink-0 animate-fade-in">
-        <div className="flex flex-col items-center mb-4">
-            <div className="flex gap-2 mb-4">
-                <div className="px-3 py-1 rounded-full border border-primary/30 bg-primary/10 text-[10px] text-primary tracking-widest uppercase font-black">
-                    Système Agentique
-                </div>
-                <div className="px-3 py-1 rounded-full border border-accent/30 bg-accent/10 text-[10px] text-accent tracking-widest uppercase font-black">
-                    Authenticité Z12
-                </div>
+        <div className="flex items-center gap-6">
+          <div className="flex gap-2">
+            <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 border border-border rounded-full hover:bg-muted transition-all" title="Configuration"><AdjustmentsIcon className="w-5 h-5"/></button>
+            <button onClick={() => setIsDocModalOpen(true)} className="p-2 border border-border rounded-full hover:bg-muted transition-all" title="Aide"><QuestionMarkCircleIcon className="w-5 h-5"/></button>
+          </div>
+          <div className="h-8 w-px bg-border mx-2"></div>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <p className="text-xs font-bold leading-none">{user.name}</p>
+              <button onClick={() => { setUser(null); localStorage.removeItem('z12_user'); }} className="text-[10px] text-destructive hover:underline">Déconnexion</button>
             </div>
-            <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-br from-white via-primary to-secondary drop-shadow-sm leading-tight">
-                Humanizer Z12
-            </h1>
-            <p className="mt-4 text-lg md:text-xl font-bold text-primary/80 tracking-tight animate-pulse">
-                GÉNIAL ! Vous venez d'élever le concept à un niveau supérieur
-            </p>
+            <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-black border border-primary/30">
+              {user.name.charAt(0)}
+            </div>
+          </div>
         </div>
       </header>
 
-      <main className="flex-grow flex flex-col lg:grid overflow-hidden gap-6" style={{ gridTemplateColumns }}>
-        
-        {/* Left Panel: Style Library */}
-        <aside className={`${isStyleLibraryOpen ? 'block' : 'hidden lg:block'} transition-all duration-300`}>
+      {/* Main Layout */}
+      <main style={gridStyles} className="flex-grow p-4 overflow-hidden">
+        {/* Style Library (Left) */}
+        <aside className="h-full">
           <StyleLibrary 
             styles={styles} 
             setStyles={setStyles} 
             isOpen={isStyleLibraryOpen} 
-            onToggle={() => setIsStyleLibraryOpen(!isStyleLibraryOpen)}
+            onToggle={() => setIsStyleLibraryOpen(!isStyleLibraryOpen)} 
           />
         </aside>
 
-        {/* Center Panel: Generation Engine */}
-        <section className="flex-1 overflow-y-auto">
+        {/* Workspace (Center) */}
+        <section className="h-full overflow-hidden bg-card/20 rounded-3xl border border-border/50 shadow-2xl">
           <GenerationEngine 
-            inputText={inputText}
-            setInputText={handleInputTextChange}
-            outputText={outputText}
-            setOutputText={handleOutputTextChange}
-            isLoading={isLoading}
-            isRefining={isRefining}
-            handleGenerate={handleGenerate}
-            handleRefine={handleRefine}
-            handleReanalyze={handleReanalyze}
-            analysisResult={analysisResult}
-            error={error}
-            hasBeenEdited={hasBeenEdited}
-            agenticConfig={agenticConfig}
-            setAgenticConfig={setAgenticConfig}
+            inputText={inputText} setInputText={setInputText}
+            outputText={outputText} setOutputText={setOutputText}
+            isLoading={isLoading} isRefining={false}
+            handleGenerate={handleGenerate} handleRefine={() => {}} handleReanalyze={() => {}}
+            analysisResult={analysisResult} error={error} hasBeenEdited={false}
             workflowLogs={workflowLogs}
+            agenticConfig={{ enabled: true, targetScore: 90, maxIterations: workflow.filter(s => s.active).length }}
+            setAgenticConfig={() => {}}
           />
         </section>
 
-        {/* Right Panel: Configuration */}
-        <aside className={`${isConfigPanelOpen ? 'block' : 'hidden lg:block'} transition-all duration-300`}>
+        {/* Agent Workflow (Right) */}
+        <aside className="h-full">
           <ConfigurationPanel 
-            distribution={distribution} 
-            setDistribution={setDistribution} 
-            styles={styles} 
+            workflow={workflow} 
+            setWorkflow={setWorkflow} 
             isOpen={isConfigPanelOpen} 
             onToggle={() => setIsConfigPanelOpen(!isConfigPanelOpen)}
-            model={settings.selectedModel}
-            setModel={handleModelChange}
           />
         </aside>
-
       </main>
 
-      <footer className="mt-8 py-4 border-t border-border flex flex-col sm:flex-row justify-between items-center text-xs text-muted-foreground flex-shrink-0">
-        <div className="flex items-center space-x-4 mb-2 sm:mb-0">
-          <span className="flex items-center">
-            <span className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span>
-            Moteur Gemini 2.5 Pro Actif
-          </span>
-          <span className="opacity-50">|</span>
-          <span>© 2025 Humanizer Z12 - Agentic Solutions</span>
+      {/* Footer minimaliste mis à jour */}
+      <footer className="h-8 border-t border-border flex items-center justify-between px-6 text-[10px] text-muted-foreground flex-shrink-0">
+        <div className="flex items-center gap-4">
+          <span>&copy; 2025 Propulsé par zakibelm</span>
+          <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>OpenRouter Sync OK</span>
         </div>
-        <div className="flex space-x-6">
-          <a href="#" className="hover:text-primary transition-colors">Conditions</a>
-          <a href="#" className="hover:text-primary transition-colors">Confidentialité</a>
-          <a href="#" className="hover:text-primary transition-colors">Support Technique</a>
+        <div className="flex items-center gap-4 uppercase font-bold tracking-widest">
+          <span>Mode Multi-Agents</span>
+          <span className="text-primary">v2.3.1</span>
         </div>
       </footer>
     </div>

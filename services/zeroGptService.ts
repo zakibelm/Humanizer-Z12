@@ -1,70 +1,35 @@
 
 import { ZeroGptResult } from '../types';
 
-// API Endpoint officiel de ZeroGPT
 const API_URL = "https://api.zerogpt.com/api/detect/detectText";
 
 export const detectAI = async (text: string, apiKey: string): Promise<ZeroGptResult | null> => {
-    // ZeroGPT a souvent une limite minimale de caractères
-    if (!text || text.trim().length < 50) {
-        return null;
-    }
-
-    if (!apiKey || apiKey.trim() === "") {
-        console.warn("⚠️ Aucune clé ZeroGPT fournie. Ignorer la détection externe.");
-        return {
-             isReal: false,
-             fakePercentage: 0,
-             error: "Clé API manquante"
-        };
+    if (!text || text.trim().length < 50 || !apiKey) {
+        return { isReal: false, fakePercentage: 0, error: "Critères non remplis" };
     }
 
     try {
-        console.log("🔍 Interrogation du Juge ZeroGPT...");
-        
         const response = await fetch(API_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Accept': 'application/json',
                 'ApiKey': apiKey
             },
-            body: JSON.stringify({
-                input_text: text
-            })
+            body: JSON.stringify({ input_text: text })
         });
 
-        if (!response.ok) {
-            // Gestion spécifique des erreurs courantes
-            if (response.status === 401) throw new Error("Clé API ZeroGPT invalide ou expirée.");
-            if (response.status === 403) throw new Error("Accès refusé (CORS ou IP bloquée).");
-            throw new Error(`Erreur API ZeroGPT: ${response.statusText}`);
-        }
+        if (!response.ok) return { isReal: false, fakePercentage: 0, error: "Erreur API" };
 
         const data = await response.json();
-        
-        // Structure de réponse ZeroGPT (peut varier selon la version de l'API)
-        const fakePercentage = typeof data.data?.fakePercentage === 'number' 
-            ? data.data.fakePercentage 
-            : (typeof data.fakePercentage === 'number' ? data.fakePercentage : 0);
+        const fakePercentage = data.data?.fakePercentage || 0;
             
-        const isReal = fakePercentage < 20;
-
-        console.log(`✅ Résultat ZeroGPT : ${fakePercentage}% Fake`);
-
         return {
-            isReal: isReal,
+            isReal: fakePercentage < 20,
             fakePercentage: fakePercentage,
             aiWords: data.data?.aiWords ?? 0,
-            feedback: data.message || (isReal ? "Texte validé humain" : "Détection IA forte")
+            feedback: data.message || "Analyse terminée"
         };
-
     } catch (error) {
-        console.warn("⚠️ Bypass ZeroGPT (Mode Offline/CORS):", error);
-        return {
-            isReal: false,
-            fakePercentage: 0,
-            error: error instanceof Error ? error.message : "Erreur de connexion API"
-        };
+        return { isReal: false, fakePercentage: 0, error: "Erreur réseau" };
     }
 };
