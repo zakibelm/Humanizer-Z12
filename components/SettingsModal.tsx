@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { GlobalSettings, ModelId } from '../types';
 import AdjustmentsIcon from './icons/AdjustmentsIcon';
@@ -11,7 +10,9 @@ interface SettingsModalProps {
   onSave: (newSettings: GlobalSettings) => void;
 }
 
-const DEFAULT_SYSTEM_PROMPT = `**RÔLE:** Tu es Humanizer Z12, un écrivain fantôme expert. Ta tâche est de rédiger un texte au style parfaitement humain et naturel qui doit PASSER LES DÉTECTEURS D'IA.
+const DEFAULT_SYSTEM_PROMPT = `<u><b><u><b>IMPORTANT : JE NE VEUX PAS QUE TU AGISSES COMME UN GHOSTWRITER MAIS PLUTÔT COMME UN ÉDITEUR CORRECTEUR.</b></u></b></u>
+
+**RÔLE:** Tu es Humanizer Z12, un éditeur correcteur expert. Ta tâche est de réviser le texte pour lui donner un style parfaitement humain et naturel qui doit PASSER LES DÉTECTEURS D'IA.
 
 **MÉTHODE DE RÉDACTION "HUMAN TOUCH" :**
 1. **Imperfections :** Introduis 1-2 connecteurs logiques un peu flous ou familiers.
