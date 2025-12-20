@@ -1,20 +1,16 @@
-
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import StyleLibrary from './components/StyleLibrary';
 import ConfigurationPanel from './components/ConfigurationPanel';
 import GenerationEngine from './components/GenerationEngine';
 import DocumentationModal from './components/DocumentationModal';
-import LoginScreen from './components/LoginScreen';
 import SettingsModal from './components/SettingsModal';
+import LoginScreen from './components/LoginScreen';
 import QuestionMarkCircleIcon from './components/icons/QuestionMarkCircleIcon';
-import CogIcon from './components/icons/CogIcon';
+import AdjustmentsIcon from './components/icons/AdjustmentsIcon';
 import { INITIAL_STYLES, INITIAL_DISTRIBUTION, MAX_INPUT_CHARS } from './constants';
-import { StyleCategory, StyleDistribution, AnalysisResult, WorkflowStep, AgenticConfig, StylometricProfile, AppSettings } from './types';
-import { generateHumanizedText, refineHumanizedText, analyzeExistingText } from './services/aiService';
+import { StyleCategory, StyleDistribution, AnalysisResult, ModelId, WorkflowStep, AgenticConfig, StylometricProfile, GlobalSettings } from './types';
+import { generateHumanizedText, refineHumanizedText, analyzeExistingText } from './services/geminiService';
 import { createCompositeProfile } from './services/stylometryService';
-import { POPULAR_OPENROUTER_MODELS } from './services/openRouterService';
-import { DEFAULT_GENERATION_PROMPT, DEFAULT_REFINEMENT_PROMPT, DEFAULT_ANALYSIS_PROMPT } from './defaultPrompts';
-import { analyticsService } from './services/analyticsService';
 
 interface UserSession {
   name: string;
@@ -22,40 +18,54 @@ interface UserSession {
   avatar?: string;
 }
 
+const DEFAULT_SYSTEM_PROMPT = `**RÔLE:** Tu es Humanizer Z12, un écrivain fantôme expert. Ta tâche est de rédiger un texte au style parfaitement humain et naturel qui doit PASSER LES DÉTECTEURS D'IA.
+
+**MÉTHODE DE RÉDACTION "HUMAN TOUCH" :**
+1. **Imperfections :** Introduis 1-2 connecteurs logiques un peu flous ou familiers (ex: "Bon,", "En fait,", "Du coup,").
+2. **Opinion :** Prends position légèrement. L'IA est neutre, l'humain est subjectif.
+3. **Structure :** Évite les structures "Intro - 3 Paragraphes - Conclusion". Sois plus organique.`;
+
 const App: React.FC = () => {
   // Auth State
   const [user, setUser] = useState<UserSession | null>(() => {
     try {
       const savedUser = localStorage.getItem('z12_user_session');
       return savedUser ? JSON.parse(savedUser) : null;
-    } catch (e) {
-      console.warn('Failed to load user session from localStorage:', e);
-      return null;
+    } catch { return null; }
+  });
+
+  // Global Settings State (API Keys, etc.)
+  const [settings, setSettings] = useState<GlobalSettings>(() => {
+    try {
+      const saved = localStorage.getItem('z12_settings');
+      return saved ? JSON.parse(saved) : {
+        googleApiKey: process.env.API_KEY || '',
+        zeroGptApiKey: 'ba51f26b-7e8b-423e-bf2d-6c49e2210840',
+        selectedModel: 'gemini-3-pro-preview' as ModelId,
+        systemPromptOverride: DEFAULT_SYSTEM_PROMPT
+      };
+    } catch {
+      return {
+        googleApiKey: '',
+        zeroGptApiKey: '',
+        selectedModel: 'gemini-3-pro-preview' as ModelId,
+        systemPromptOverride: DEFAULT_SYSTEM_PROMPT
+      };
     }
   });
 
-  // Analytics - Session ID for tracking
-  const [sessionId, setSessionId] = useState<string | null>(null);
-
-  // Initialize state with lazy initializers
   const [styles, setStyles] = useState<StyleCategory[]>(() => {
     try {
         const saved = localStorage.getItem('z12_styles');
         return saved ? JSON.parse(saved) : INITIAL_STYLES;
-    } catch (e) {
-        console.warn('Failed to load styles from localStorage:', e);
-        return INITIAL_STYLES;
-    }
+    } catch { return INITIAL_STYLES; }
   });
-
+  
   const [distribution, setDistribution] = useState<StyleDistribution>(() => {
     try {
         const saved = localStorage.getItem('z12_distribution');
         return saved ? JSON.parse(saved) : INITIAL_DISTRIBUTION;
-    } catch (e) {
-        console.warn('Failed to load distribution from localStorage:', e);
-        return INITIAL_DISTRIBUTION;
-    }
+    } catch { return INITIAL_DISTRIBUTION; }
   });
 
   const [inputText, setInputText] = useState<string>('');
@@ -69,56 +79,11 @@ const App: React.FC = () => {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasBeenEdited, setHasBeenEdited] = useState<boolean>(false);
-
-  // App Settings State
-  const [appSettings, setAppSettings] = useState<AppSettings>(() => {
-    try {
-      const saved = localStorage.getItem('z12_app_settings');
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (e) {
-      console.error('Failed to load settings:', e);
-    }
-
-    // Default settings
-    return {
-      apiKeys: {
-        openrouter: '',
-        zerogpt: ''
-      },
-      modelAssignments: [
-        {
-          role: 'generator',
-          model: POPULAR_OPENROUTER_MODELS[0], // Claude 3.5 Sonnet by default
-          temperature: 1.0,
-          enabled: true
-        },
-        {
-          role: 'refiner',
-          model: POPULAR_OPENROUTER_MODELS[0],
-          temperature: 1.0,
-          enabled: true
-        },
-        {
-          role: 'analyzer',
-          model: POPULAR_OPENROUTER_MODELS[2], // Claude Haiku (fast & cheap)
-          temperature: 0.1,
-          enabled: true
-        }
-      ],
-      defaultPrompts: {
-        generation: DEFAULT_GENERATION_PROMPT,
-        refinement: DEFAULT_REFINEMENT_PROMPT,
-        analysis: DEFAULT_ANALYSIS_PROMPT
-      }
-    };
-  });
   
   // Agentic State
   const [agenticConfig, setAgenticConfig] = useState<AgenticConfig>({
       enabled: true, 
-      targetScore: 90,
+      targetScore: 92,
       maxIterations: 3
   });
   const [workflowLogs, setWorkflowLogs] = useState<WorkflowStep[]>([]);
@@ -133,60 +98,22 @@ const App: React.FC = () => {
   }, [distribution]);
 
   useEffect(() => {
-    localStorage.setItem('z12_app_settings', JSON.stringify(appSettings));
-  }, [appSettings]);
+    localStorage.setItem('z12_settings', JSON.stringify(settings));
+  }, [settings]);
 
-  // Analytics: Update activity every 2 minutes (heartbeat)
-  useEffect(() => {
-    if (!sessionId) return;
-
-    const intervalId = setInterval(() => {
-      analyticsService.updateActivity(sessionId);
-    }, 2 * 60 * 1000); // Every 2 minutes
-
-    // Cleanup on unmount
-    return () => clearInterval(intervalId);
-  }, [sessionId]);
-
-  const handleLogin = async (userData: UserSession) => {
+  const handleLogin = (userData: UserSession) => {
     setUser(userData);
     localStorage.setItem('z12_user_session', JSON.stringify(userData));
-
-    // Track login in Firebase
-    const userId = userData.email.replace(/[^a-zA-Z0-9]/g, '_');
-    const newSessionId = await analyticsService.trackLogin(userId, userData.name, userData.email);
-    if (newSessionId) {
-      setSessionId(newSessionId);
-    }
   };
 
-  const handleLogout = async () => {
-    // Track logout in Firebase
-    if (sessionId) {
-      await analyticsService.trackLogout(sessionId);
-    }
-
+  const handleLogout = () => {
     setUser(null);
-    setSessionId(null);
     localStorage.removeItem('z12_user_session');
   };
 
   const activeProfile = useMemo<StylometricProfile>(() => {
-    try {
-      const allDocumentTexts = styles.flatMap(category => category.documents.map(doc => doc.content));
-      return createCompositeProfile(allDocumentTexts.length > 0 ? allDocumentTexts : [""]);
-    } catch (error) {
-      console.error('❌ Erreur lors du calcul du profil stylométrique:', error);
-      // Retourner un profil par défaut en cas d'erreur
-      return {
-        typeTokenRatio: 0,
-        averageWordLength: 0,
-        sentenceLengthMean: 0,
-        sentenceLengthStdDev: 0,
-        punctuationProfile: {},
-        fleschReadingEase: 0
-      };
-    }
+    const allDocumentTexts = styles.flatMap(category => category.documents.map(doc => doc.content));
+    return createCompositeProfile(allDocumentTexts.length > 0 ? allDocumentTexts : [""]);
   }, [styles]);
   
   const handleInputTextChange = (text: string) => {
@@ -199,6 +126,10 @@ const App: React.FC = () => {
     setHasBeenEdited(true);
   };
 
+  const handleModelChange = (model: ModelId) => {
+      setSettings(prev => ({ ...prev, selectedModel: model }));
+  };
+
   const handleGenerate = useCallback(async () => {
     if (!inputText.trim() || inputText.length > MAX_INPUT_CHARS) {
         if(inputText.length > MAX_INPUT_CHARS) {
@@ -207,16 +138,15 @@ const App: React.FC = () => {
         return;
     }
 
-    const hasDocs = styles.some(s => s.documents.length > 0);
-    if (!hasDocs) {
-        setError("Veuillez ajouter au moins un document à la bibliothèque pour définir un style.");
+    if (!settings.googleApiKey) {
+        setError("Clé API Google manquante. Veuillez la configurer dans les paramètres.");
+        setIsSettingsModalOpen(true);
         return;
     }
 
-    // Vérifier que la clé API OpenRouter est configurée
-    if (!appSettings.apiKeys.openrouter) {
-        setError("Veuillez configurer votre clé API OpenRouter dans les Paramètres.");
-        setIsSettingsModalOpen(true);
+    const hasDocs = styles.some(s => s.documents.length > 0);
+    if (!hasDocs) {
+        setError("Veuillez ajouter au moins un document à la bibliothèque pour définir un style.");
         return;
     }
 
@@ -229,26 +159,21 @@ const App: React.FC = () => {
 
     try {
         const result = await generateHumanizedText(
-            inputText,
-            styles,
-            distribution,
-            activeProfile,
+            inputText, 
+            styles, 
+            distribution, 
+            activeProfile, 
             agenticConfig,
-            appSettings,
+            {
+                googleApiKey: settings.googleApiKey,
+                zeroGptApiKey: settings.zeroGptApiKey,
+                model: settings.selectedModel,
+                systemPrompt: settings.systemPromptOverride || DEFAULT_SYSTEM_PROMPT
+            },
             (step) => setWorkflowLogs(prev => [...prev, step])
         );
         setOutputText(result.text);
         setAnalysisResult(result.analysis);
-
-        // Track text generation activity
-        if (user && sessionId) {
-          const userId = user.email.replace(/[^a-zA-Z0-9]/g, '_');
-          await analyticsService.trackActivity(userId, sessionId, 'text_generation', {
-            inputLength: inputText.length,
-            outputLength: result.text.length,
-            detectionScore: result.analysis.detectionRisk.score
-          });
-        }
     } catch (e) {
         console.error(e);
         if (e instanceof Error) {
@@ -259,30 +184,35 @@ const App: React.FC = () => {
     } finally {
         setIsLoading(false);
     }
-  }, [inputText, styles, distribution, agenticConfig, activeProfile, appSettings, user, sessionId]);
+  }, [inputText, styles, distribution, settings, agenticConfig, activeProfile]);
 
   const handleRefine = useCallback(async () => {
     if (!outputText || !analysisResult) return;
+    if (!settings.googleApiKey) {
+        setError("Clé API Google manquante.");
+        return;
+    }
 
     setIsRefining(true);
     setError(null);
     setHasBeenEdited(false);
-    setWorkflowLogs(prev => [...prev, { id: Date.now().toString(), label: "Raffinement manuel", status: "running", details: "Amélioration ciblée demandée..."}]);
-
+    setWorkflowLogs(prev => [...prev, { id: Date.now().toString(), label: "Raffinement agentique", status: "running", details: "Ajustement précis des segments artificiels..."}]);
+    
     try {
-        const result = await refineHumanizedText(outputText, analysisResult, styles, distribution, activeProfile, appSettings);
+        const result = await refineHumanizedText(
+            outputText, 
+            analysisResult, 
+            styles, 
+            activeProfile,
+            {
+                googleApiKey: settings.googleApiKey,
+                zeroGptApiKey: settings.zeroGptApiKey,
+                model: settings.selectedModel
+            }
+        );
         setOutputText(result.text);
         setAnalysisResult(result.analysis);
-        setWorkflowLogs(prev => prev.map(l => l.status === 'running' ? { ...l, status: 'success', details: 'Terminé.' } : l));
-
-        // Track text refinement activity
-        if (user && sessionId) {
-          const userId = user.email.replace(/[^a-zA-Z0-9]/g, '_');
-          await analyticsService.trackActivity(userId, sessionId, 'text_refinement', {
-            textLength: result.text.length,
-            detectionScore: result.analysis.detectionRisk.score
-          });
-        }
+        setWorkflowLogs(prev => prev.map(l => l.status === 'running' ? { ...l, status: 'success', details: 'Raffinement terminé avec succès.' } : l));
     } catch (e) {
          if (e instanceof Error) {
             setError(e.message);
@@ -292,29 +222,33 @@ const App: React.FC = () => {
     } finally {
         setIsRefining(false);
     }
-  }, [outputText, analysisResult, styles, distribution, activeProfile, appSettings, user, sessionId]);
+  }, [outputText, analysisResult, styles, settings, activeProfile]);
 
   const handleReanalyze = useCallback(async () => {
     if (!outputText) return;
+    if (!settings.googleApiKey) {
+        setError("Clé API Google manquante.");
+        return;
+    }
+
     setIsRefining(true);
     setError(null);
-    setWorkflowLogs(prev => [...prev, { id: Date.now().toString(), label: "Ré-analyse", status: "running", details: "Analyse des modifications..."}]);
+    setWorkflowLogs(prev => [...prev, { id: Date.now().toString(), label: "Audit de réécriture", status: "running", details: "Validation stylométrique des modifications manuelles..."}]);
 
     try {
-        const result = await analyzeExistingText(outputText, activeProfile, appSettings);
-        setOutputText(result.text);
+        const result = await analyzeExistingText(
+            outputText, 
+            activeProfile,
+            {
+                googleApiKey: settings.googleApiKey,
+                zeroGptApiKey: settings.zeroGptApiKey,
+                model: settings.selectedModel
+            }
+        );
+        setOutputText(result.text); 
         setAnalysisResult(result.analysis);
         setHasBeenEdited(false);
-         setWorkflowLogs(prev => prev.map(l => l.status === 'running' ? { ...l, status: 'success', details: `Nouveau score : ${result.analysis.detectionRisk.score}%` } : l));
-
-        // Track text analysis activity
-        if (user && sessionId) {
-          const userId = user.email.replace(/[^a-zA-Z0-9]/g, '_');
-          await analyticsService.trackActivity(userId, sessionId, 'text_analysis', {
-            textLength: outputText.length,
-            detectionScore: result.analysis.detectionRisk.score
-          });
-        }
+         setWorkflowLogs(prev => prev.map(l => l.status === 'running' ? { ...l, status: 'success', details: `Nouveau score d'authenticité : ${result.analysis.detectionRisk.score}%` } : l));
     } catch(e) {
         if (e instanceof Error) {
             setError(e.message);
@@ -324,33 +258,31 @@ const App: React.FC = () => {
     } finally {
         setIsRefining(false);
     }
-  }, [outputText, activeProfile, appSettings, user, sessionId]);
+  }, [outputText, activeProfile, settings]);
 
 
   const gridTemplateColumns = useMemo(() => {
-    const leftCol = isStyleLibraryOpen ? 'minmax(320px, 1fr)' : '56px';
-    const rightCol = isConfigPanelOpen ? 'minmax(320px, 1fr)' : '56px';
-    const midCol = 'minmax(480px, 2.5fr)';
+    const leftCol = isStyleLibraryOpen ? 'minmax(300px, 1fr)' : '48px';
+    const rightCol = isConfigPanelOpen ? 'minmax(300px, 1fr)' : '48px';
+    const midCol = 'minmax(600px, 3fr)';
     return `${leftCol} ${midCol} ${rightCol}`;
   }, [isStyleLibraryOpen, isConfigPanelOpen]);
 
-  // Render Login Screen if not authenticated
   if (!user) {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
   return (
-    <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8 relative">
+    <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8 relative selection:bg-primary/30 selection:text-white">
       <DocumentationModal isOpen={isDocModalOpen} onClose={() => setIsDocModalOpen(false)} />
-      <SettingsModal
-        isOpen={isSettingsModalOpen}
-        onClose={() => setIsSettingsModalOpen(false)}
-        settings={appSettings}
-        onSave={setAppSettings}
+      <SettingsModal 
+        isOpen={isSettingsModalOpen} 
+        onClose={() => setIsSettingsModalOpen(false)} 
+        settings={settings}
+        onSave={setSettings}
       />
-
-      {/* User Profile / Logout - Top Left */}
-      <div className="fixed top-4 left-4 z-40 flex items-center gap-3 bg-card/80 backdrop-blur-md p-2 rounded-full border border-border shadow-sm group">
+      
+      <div className="fixed top-4 left-4 z-40 flex items-center gap-3 bg-card/80 backdrop-blur-md p-2 rounded-full border border-border shadow-sm group hover:border-primary/50 transition-all">
         <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden border border-primary/30 text-primary font-bold text-xs">
            {user.name.charAt(0)}
         </div>
@@ -360,95 +292,107 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Top Right Buttons */}
-      <div className="fixed top-4 right-4 sm:top-6 sm:right-6 z-40 flex gap-2">
-        <button
-          onClick={() => setIsSettingsModalOpen(true)}
-          className="p-2 bg-card/80 backdrop-blur-md border border-border rounded-full shadow-lg hover:bg-card hover:text-secondary transition-all duration-300 group"
-          title="Paramètres"
+      <div className="fixed top-4 right-4 sm:top-6 sm:right-6 z-40 flex gap-3">
+        <button 
+            onClick={() => setIsSettingsModalOpen(true)}
+            className="p-2 bg-card/80 backdrop-blur-md border border-border rounded-full shadow-lg hover:bg-card hover:text-primary transition-all duration-300 group"
+            title="Paramètres"
         >
-          <CogIcon className="w-6 h-6 text-muted-foreground group-hover:text-secondary" />
+            <AdjustmentsIcon className="w-6 h-6 text-muted-foreground group-hover:text-primary" />
         </button>
-        <button
-          onClick={() => setIsDocModalOpen(true)}
-          className="p-2 bg-card/80 backdrop-blur-md border border-border rounded-full shadow-lg hover:bg-card hover:text-primary transition-all duration-300 group"
-          title="Documentation"
+        <button 
+            onClick={() => setIsDocModalOpen(true)}
+            className="p-2 bg-card/80 backdrop-blur-md border border-border rounded-full shadow-lg hover:bg-card hover:text-primary transition-all duration-300 group"
+            title="Documentation"
         >
-          <QuestionMarkCircleIcon className="w-6 h-6 text-muted-foreground group-hover:text-primary" />
+            <QuestionMarkCircleIcon className="w-6 h-6 text-muted-foreground group-hover:text-primary" />
         </button>
       </div>
 
-      <header className="text-center mb-8 flex-shrink-0">
-        <div className="flex justify-center items-center mb-2">
-            <div className="px-2 py-0.5 rounded border border-primary/30 bg-primary/10 text-[10px] text-primary tracking-widest uppercase font-bold mr-3">
-                Production Ready
+      <header className="text-center mb-10 flex-shrink-0 animate-fade-in">
+        <div className="flex flex-col items-center mb-4">
+            <div className="flex gap-2 mb-4">
+                <div className="px-3 py-1 rounded-full border border-primary/30 bg-primary/10 text-[10px] text-primary tracking-widest uppercase font-black">
+                    Système Agentique
+                </div>
+                <div className="px-3 py-1 rounded-full border border-accent/30 bg-accent/10 text-[10px] text-accent tracking-widest uppercase font-black">
+                    Authenticité Z12
+                </div>
             </div>
-            <div className="px-2 py-0.5 rounded border border-accent/30 bg-accent/10 text-[10px] text-accent tracking-widest uppercase font-bold">
-                Agentic Core v2
-            </div>
+            <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-br from-white via-primary to-secondary drop-shadow-sm leading-tight">
+                Humanizer Z12
+            </h1>
+            <p className="mt-4 text-lg md:text-xl font-bold text-primary/80 tracking-tight animate-pulse">
+                GÉNIAL ! Vous venez d'élever le concept à un niveau supérieur
+            </p>
         </div>
-        <h1 className="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
-          Humanizer Z12
-        </h1>
-        <p className="text-lg text-muted-foreground mt-2 max-w-2xl mx-auto">
-          Solution agentique autonome pour transformer vos textes IA en contenu humain naturel et authentique.
-        </p>
       </header>
 
-      <main 
-        className="flex-grow grid gap-8 items-start mb-12"
-        style={{ 
-          gridTemplateColumns,
-          transition: 'grid-template-columns 300ms ease-in-out'
-        }}
-      >
-        <StyleLibrary 
-          styles={styles} 
-          setStyles={setStyles} 
-          isOpen={isStyleLibraryOpen}
-          onToggle={() => setIsStyleLibraryOpen(prev => !prev)}
-        />
-        <GenerationEngine
-          inputText={inputText}
-          setInputText={handleInputTextChange}
-          outputText={outputText}
-          setOutputText={handleOutputTextChange}
-          isLoading={isLoading}
-          isRefining={isRefining}
-          handleGenerate={handleGenerate}
-          handleRefine={handleRefine}
-          handleReanalyze={handleReanalyze}
-          analysisResult={analysisResult}
-          error={error}
-          hasBeenEdited={hasBeenEdited}
-          agenticConfig={agenticConfig}
-          setAgenticConfig={setAgenticConfig}
-          workflowLogs={workflowLogs}
-          appSettings={appSettings}
-        />
-        <ConfigurationPanel
-          distribution={distribution}
-          setDistribution={setDistribution}
-          styles={styles}
-          isOpen={isConfigPanelOpen}
-          onToggle={() => setIsConfigPanelOpen(prev => !prev)}
-        />
+      <main className="flex-grow flex flex-col lg:grid overflow-hidden gap-6" style={{ gridTemplateColumns }}>
+        
+        {/* Left Panel: Style Library */}
+        <aside className={`${isStyleLibraryOpen ? 'block' : 'hidden lg:block'} transition-all duration-300`}>
+          <StyleLibrary 
+            styles={styles} 
+            setStyles={setStyles} 
+            isOpen={isStyleLibraryOpen} 
+            onToggle={() => setIsStyleLibraryOpen(!isStyleLibraryOpen)}
+          />
+        </aside>
+
+        {/* Center Panel: Generation Engine */}
+        <section className="flex-1 overflow-y-auto">
+          <GenerationEngine 
+            inputText={inputText}
+            setInputText={handleInputTextChange}
+            outputText={outputText}
+            setOutputText={handleOutputTextChange}
+            isLoading={isLoading}
+            isRefining={isRefining}
+            handleGenerate={handleGenerate}
+            handleRefine={handleRefine}
+            handleReanalyze={handleReanalyze}
+            analysisResult={analysisResult}
+            error={error}
+            hasBeenEdited={hasBeenEdited}
+            agenticConfig={agenticConfig}
+            setAgenticConfig={setAgenticConfig}
+            workflowLogs={workflowLogs}
+          />
+        </section>
+
+        {/* Right Panel: Configuration */}
+        <aside className={`${isConfigPanelOpen ? 'block' : 'hidden lg:block'} transition-all duration-300`}>
+          <ConfigurationPanel 
+            distribution={distribution} 
+            setDistribution={setDistribution} 
+            styles={styles} 
+            isOpen={isConfigPanelOpen} 
+            onToggle={() => setIsConfigPanelOpen(!isConfigPanelOpen)}
+            model={settings.selectedModel}
+            setModel={handleModelChange}
+          />
+        </aside>
+
       </main>
 
-      <footer className="mt-auto py-6 border-t border-border/50 text-center">
-        <div className="max-w-4xl mx-auto px-4">
-            <p className="text-xs text-muted-foreground mb-2">
-                <strong className="text-foreground/80">Usage Responsable :</strong> Humanizer Z12 est un outil d'aide à la rédaction conçu pour améliorer la fluidité et la qualité stylistique des textes. 
-                L'utilisateur est seul responsable de l'utilisation du contenu généré. Nous condamnons l'utilisation de cet outil pour la fraude académique, 
-                la désinformation ou toute activité violant les droits d'auteur ou les politiques d'intégrité.
-            </p>
-            <p className="text-[10px] text-muted-foreground/60">
-                propulsé par Zakibelm • Analyse Stylométrique Locale (Intl.Segmenter) • Session Utilisateur Active
-            </p>
+      <footer className="mt-8 py-4 border-t border-border flex flex-col sm:flex-row justify-between items-center text-xs text-muted-foreground flex-shrink-0">
+        <div className="flex items-center space-x-4 mb-2 sm:mb-0">
+          <span className="flex items-center">
+            <span className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span>
+            Moteur Gemini 2.5 Pro Actif
+          </span>
+          <span className="opacity-50">|</span>
+          <span>© 2025 Humanizer Z12 - Agentic Solutions</span>
+        </div>
+        <div className="flex space-x-6">
+          <a href="#" className="hover:text-primary transition-colors">Conditions</a>
+          <a href="#" className="hover:text-primary transition-colors">Confidentialité</a>
+          <a href="#" className="hover:text-primary transition-colors">Support Technique</a>
         </div>
       </footer>
     </div>
   );
-}
+};
 
 export default App;

@@ -1,11 +1,9 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import ClipboardIcon from './icons/ClipboardIcon';
 import SparklesIcon from './icons/SparklesIcon';
 import DownloadIcon from './icons/DownloadIcon';
-import { AnalysisResult, AgenticConfig, WorkflowStep, AppSettings } from '../types';
+import { AnalysisResult, AgenticConfig, WorkflowStep } from '../types';
 import StatisticsPanel from './StatisticsPanel';
-import ActiveModelsIndicator from './ActiveModelsIndicator';
 import { MAX_INPUT_CHARS } from '../constants';
 import EditableTextArea from './EditableTextArea';
 import ZapIcon from './icons/ZapIcon';
@@ -27,7 +25,6 @@ interface GenerationEngineProps {
   agenticConfig: AgenticConfig;
   setAgenticConfig: (config: AgenticConfig) => void;
   workflowLogs: WorkflowStep[];
-  appSettings: AppSettings;
 }
 
 const GenerationEngine: React.FC<GenerationEngineProps> = ({
@@ -45,8 +42,7 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
   hasBeenEdited,
   agenticConfig,
   setAgenticConfig,
-  workflowLogs,
-  appSettings
+  workflowLogs
 }) => {
   const [copied, setCopied] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -59,10 +55,6 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
   }, [isLoading, isRefining, inputText]);
 
   const isInputTooLong = inputText.length > MAX_INPUT_CHARS;
-
-  const inputWordCount = useMemo(() => {
-    return inputText.trim().split(/\s+/).filter(Boolean).length;
-  }, [inputText]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -114,7 +106,7 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
         <div className="flex-1 flex flex-col mb-4 min-h-[150px] sm:min-h-[200px]">
           <div className="flex justify-between items-center mb-2">
             <label htmlFor="input-text" className="text-sm font-medium text-muted-foreground">
-                Sujet ou texte à humaniser
+                Texte IA à Humaniser
             </label>
             
             {/* Agentic Mode Toggle */}
@@ -132,7 +124,7 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
                     />
                 </button>
                 <span className={`text-xs font-medium ${agenticConfig.enabled ? 'text-primary' : 'text-muted-foreground'}`}>
-                    Mode Agentique (Auto-Refine)
+                    Mode Agentique (Auto-Correction)
                 </span>
             </div>
           </div>
@@ -141,7 +133,7 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
             id="input-text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Écrivez le sujet ou collez votre brouillon IA ici..."
+            placeholder="Collez ici votre texte généré par ChatGPT, Claude ou Gemini. L'outil va le réécrire pour supprimer les signatures IA sans changer le sens."
             className={`w-full flex-grow p-3 bg-black/50 border rounded-md focus:ring-2 focus:ring-ring transition-all duration-200 resize-none text-foreground placeholder:text-muted-foreground shadow-inner ${isInputTooLong ? 'border-destructive focus:border-destructive' : 'border-input focus:border-primary'}`}
           />
           <div className={`text-right text-xs mt-1 ${isInputTooLong ? 'text-destructive' : 'text-muted-foreground'}`}>
@@ -168,19 +160,8 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
                         <option value="5">5</option>
                     </select>
                 </div>
-                <span className="italic ml-auto hidden sm:inline">Le système bouclera jusqu'à satisfaction.</span>
+                <span className="italic ml-auto hidden sm:inline">Le système bouclera jusqu'à ce que ZeroGPT soit satisfait.</span>
             </div>
-        )}
-
-        {/* Active Models Indicator */}
-        {!isLoading && !outputText && inputText && (
-          <div className="mb-4 animate-fade-in">
-            <ActiveModelsIndicator
-              settings={appSettings}
-              inputWordCount={inputWordCount}
-              agenticIterations={agenticConfig.maxIterations}
-            />
-          </div>
         )}
 
         {/* Workflow Logs (Visible during loading or if logs exist) */}
@@ -213,23 +194,33 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
             </div>
         )}
 
-        <button
-          onClick={handleGenerate}
-          disabled={isButtonDisabled}
-          className="w-full py-3 px-4 bg-primary text-primary-foreground font-bold rounded-md hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors duration-300 transform hover:scale-[1.01] active:scale-[0.99] disabled:scale-100 flex items-center justify-center shadow-lg shadow-primary/20"
-        >
-          {isLoading ? (
-            <>
-              <svg className="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              {agenticConfig.enabled ? 'Exécution Workflow Agentique...' : 'Génération en cours...'}
-            </>
-          ) : (
-            agenticConfig.enabled ? 'Lancer la Génération Auto-Optimisée' : 'Générer le Texte'
-          )}
-        </button>
+        {/* Action Button with Netflix-inspired Animation */}
+        <div className="relative group overflow-hidden rounded-md">
+            {/* The Animated Border Span (Netflix Style) */}
+            <span className="absolute left-0 top-0 w-[4px] h-full bg-red-600 transition-transform duration-300 origin-bottom scale-y-0 group-hover:scale-y-100 group-hover:origin-top z-10" />
+            <span className="absolute right-0 top-0 w-[4px] h-full bg-red-600 transition-transform duration-300 origin-top scale-y-0 group-hover:scale-y-100 group-hover:origin-bottom z-10" />
+            
+            <button
+              onClick={handleGenerate}
+              disabled={isButtonDisabled}
+              className="relative w-full py-4 px-6 bg-primary text-primary-foreground font-black text-lg uppercase tracking-wider rounded-md hover:bg-primary/95 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center shadow-2xl shadow-primary/30 z-0"
+            >
+              {isLoading ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  {agenticConfig.enabled ? 'Audit ZeroGPT...' : 'Humanisation...'}
+                </>
+              ) : (
+                <>
+                    <ZapIcon className="w-6 h-6 mr-3 text-white animate-pulse" />
+                    {agenticConfig.enabled ? 'Élever le concept' : 'Humaniser'}
+                </>
+              )}
+            </button>
+        </div>
 
         {analysisResult && !isLoading && (
           <div className="mt-6">
@@ -240,7 +231,7 @@ const GenerationEngine: React.FC<GenerationEngineProps> = ({
         <div className="flex-1 flex flex-col mt-6 min-h-[200px] sm:min-h-[250px]">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
             <label className="text-sm font-medium text-muted-foreground">
-              Résultat Final
+              Résultat Humanisé (Prêt pour détection)
             </label>
             {outputText && (
                <div className="flex flex-wrap items-center gap-2">

@@ -6,19 +6,7 @@ export interface Document {
 }
 
 export type StyleCategoryId = 'user' | 'journalistic' | 'academic' | 'conversational' | 'creative';
-
-// AI Provider Types
-export type AIProvider = 'openrouter';
-
-export interface AIModel {
-  id: string;
-  name: string;
-  provider: AIProvider;
-  contextWindow?: number;
-  costPer1kTokens?: number;
-}
-
-export type WorkflowRole = 'generator' | 'refiner' | 'analyzer';
+export type ModelId = 'gemini-2.5-pro' | 'gemini-2.5-flash';
 
 export interface StyleCategory {
   id: StyleCategoryId;
@@ -90,57 +78,9 @@ export interface AgenticConfig {
   maxIterations: number;
 }
 
-// Advanced Multi-Model Configuration
-export interface ModelAssignment {
-  role: WorkflowRole;
-  model: AIModel;
-  systemPrompt?: string; // Custom system prompt override
-  temperature?: number;
-  enabled: boolean;
-}
-
-export interface AppSettings {
-  apiKeys: {
-    openrouter?: string;
-    zerogpt?: string;
-  };
-  modelAssignments: ModelAssignment[];
-  defaultPrompts: {
-    generation: string;
-    refinement: string;
-    analysis: string;
-  };
-}
-
-export interface WorkflowStepExtended extends WorkflowStep {
-  modelUsed?: string;
-  tokensUsed?: number;
-  duration?: number;
-}
-
-// History System
-export interface GenerationHistoryItem {
-  id: string;
-  timestamp: number;
-  inputText: string;
-  outputText: string;
-  analysis: AnalysisResult;
-  modelAssignments: ModelAssignment[];
-  agenticConfig: AgenticConfig;
-  workflowLogs: WorkflowStep[];
-  estimatedCost?: number;
-  favorite?: boolean;
-  tags?: string[];
-}
-
-export interface ComparisonMode {
-  enabled: boolean;
-  configA: {
-    modelAssignments: ModelAssignment[];
-    label: string;
-  };
-  configB: {
-    modelAssignments: ModelAssignment[];
-    label: string;
-  };
+export interface GlobalSettings {
+  googleApiKey: string;
+  zeroGptApiKey: string;
+  selectedModel: ModelId;
+  systemPromptOverride: string; // Pour customiser l'instruction système
 }

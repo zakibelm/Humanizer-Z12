@@ -1,393 +1,182 @@
 
-import React, { useState } from 'react';
-import { AppSettings, AIModel, ModelAssignment, WorkflowRole } from '../types';
-import { POPULAR_OPENROUTER_MODELS } from '../services/openRouterService';
-import { DEFAULT_GENERATION_PROMPT, DEFAULT_REFINEMENT_PROMPT, DEFAULT_ANALYSIS_PROMPT } from '../defaultPrompts';
-import { CONFIG_TEMPLATES, applyTemplate } from '../configTemplates';
-import CogIcon from './icons/CogIcon';
-import ChevronDownIcon from './icons/ChevronDownIcon';
-import ZapIcon from './icons/ZapIcon';
+import React, { useState, useEffect } from 'react';
+import { GlobalSettings, ModelId } from '../types';
+import AdjustmentsIcon from './icons/AdjustmentsIcon';
+import ShieldCheckIcon from './icons/ShieldCheckIcon';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  settings: AppSettings;
-  onSave: (settings: AppSettings) => void;
+  settings: GlobalSettings;
+  onSave: (newSettings: GlobalSettings) => void;
 }
 
+const DEFAULT_SYSTEM_PROMPT = `**RÔLE:** Tu es Humanizer Z12, un écrivain fantôme expert. Ta tâche est de rédiger un texte au style parfaitement humain et naturel qui doit PASSER LES DÉTECTEURS D'IA.
+
+**MÉTHODE DE RÉDACTION "HUMAN TOUCH" :**
+1. **Imperfections :** Introduis 1-2 connecteurs logiques un peu flous ou familiers.
+2. **Opinion :** Prends position légèrement. L'IA est neutre, l'humain est subjectif.
+3. **Structure :** Évite les structures "Intro - 3 Paragraphes - Conclusion". Sois plus organique.`;
+
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, onSave }) => {
-  const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
-  const [activeTab, setActiveTab] = useState<'api' | 'models' | 'prompts'>('api');
-  const [expandedPrompt, setExpandedPrompt] = useState<string | null>(null);
+  const [formData, setFormData] = useState<GlobalSettings>(settings);
+  const [showKey, setShowKey] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setFormData(settings);
+  }, [settings, isOpen]);
 
   if (!isOpen) return null;
 
-  // Tous les modèles sont disponibles via OpenRouter (y compris Gemini)
-  const allAvailableModels = POPULAR_OPENROUTER_MODELS;
+  const handleChange = (field: keyof GlobalSettings, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const toggleKeyVisibility = (keyName: string) => {
+    setShowKey(prev => ({ ...prev, [keyName]: !prev[keyName] }));
+  };
 
   const handleSave = () => {
-    onSave(localSettings);
+    onSave(formData);
     onClose();
   };
 
-  const handleApiKeyChange = (provider: 'openrouter' | 'zerogpt', value: string) => {
-    setLocalSettings(prev => ({
-      ...prev,
-      apiKeys: {
-        ...prev.apiKeys,
-        [provider]: value
-      }
-    }));
-  };
-
-  const handleModelAssignmentChange = (role: WorkflowRole, field: keyof ModelAssignment, value: any) => {
-    setLocalSettings(prev => {
-      const assignments = [...prev.modelAssignments];
-      const index = assignments.findIndex(a => a.role === role);
-
-      if (index >= 0) {
-        if (field === 'model') {
-          // Find the full model object
-          const modelObj = allAvailableModels.find(m => m.id === value);
-          if (modelObj) {
-            assignments[index] = { ...assignments[index], model: modelObj };
-          }
-        } else {
-          assignments[index] = { ...assignments[index], [field]: value };
-        }
-      } else {
-        // Create new assignment
-        const modelObj = allAvailableModels[0];
-        assignments.push({
-          role,
-          model: modelObj,
-          enabled: true,
-          [field]: value
-        });
-      }
-
-      return { ...prev, modelAssignments: assignments };
-    });
-  };
-
-  const getAssignmentForRole = (role: WorkflowRole): ModelAssignment | undefined => {
-    return localSettings.modelAssignments.find(a => a.role === role);
-  };
-
-  const handlePromptChange = (promptType: 'generation' | 'refinement' | 'analysis', value: string) => {
-    setLocalSettings(prev => ({
-      ...prev,
-      defaultPrompts: {
-        ...prev.defaultPrompts,
-        [promptType]: value
-      }
-    }));
-  };
-
-  const resetPromptToDefault = (promptType: 'generation' | 'refinement' | 'analysis') => {
-    const defaults = {
-      generation: DEFAULT_GENERATION_PROMPT,
-      refinement: DEFAULT_REFINEMENT_PROMPT,
-      analysis: DEFAULT_ANALYSIS_PROMPT
-    };
-    handlePromptChange(promptType, defaults[promptType]);
-  };
-
-  const handleApplyTemplate = (templateId: string) => {
-    const newSettings = applyTemplate(templateId, localSettings);
-    setLocalSettings(newSettings);
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="bg-card border border-border rounded-lg shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+      <div className="bg-card w-full max-w-2xl rounded-xl border border-border shadow-2xl flex flex-col overflow-hidden max-h-[90vh]">
+        
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-border">
-          <div className="flex items-center gap-3">
-            <CogIcon className="w-7 h-7 text-primary" />
-            <h2 className="text-2xl font-bold text-foreground">Paramètres Avancés</h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground transition-colors text-2xl leading-none"
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex border-b border-border bg-muted/20">
-          {[
-            { id: 'api', label: '🔑 Clés API' },
-            { id: 'models', label: '🤖 Modèles' },
-            { id: 'prompts', label: '✍️ Prompts Système' }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`px-6 py-3 font-semibold transition-all ${
-                activeTab === tab.id
-                  ? 'text-primary border-b-2 border-primary bg-background'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
+        <div className="flex justify-between items-center p-6 border-b border-border bg-muted/20">
+            <div className="flex items-center">
+                <div className="bg-primary/20 p-2 rounded-lg mr-3">
+                    <AdjustmentsIcon className="w-6 h-6 text-primary" />
+                </div>
+                <div>
+                    <h2 className="text-xl font-bold text-foreground">Paramètres Généraux</h2>
+                    <p className="text-xs text-muted-foreground">Configuration des APIs et du Moteur IA</p>
+                </div>
+            </div>
+            <button 
+                onClick={onClose}
+                className="p-2 hover:bg-muted rounded-full transition-colors text-muted-foreground hover:text-foreground"
             >
-              {tab.label}
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
             </button>
-          ))}
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-
-          {/* API Keys Tab */}
-          {activeTab === 'api' && (
-            <div className="space-y-6">
-              <div className="bg-accent/10 border border-accent/30 rounded-lg p-4 text-sm text-accent-foreground">
-                <strong>ℹ️ Sécurité :</strong> Les clés sont stockées localement dans votre navigateur (localStorage).
-                Pour une production, utilisez un backend sécurisé.
-              </div>
-
-              <div className="bg-primary/10 border border-primary/30 rounded-lg p-4 text-sm text-foreground mb-4">
-                <strong>💡 Info :</strong> OpenRouter donne accès à tous les modèles d'IA (Claude, GPT-4, Gemini, Llama, etc.)
-                avec une seule clé API. C'est la solution la plus simple et économique.
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-bold text-foreground mb-2">
-                    OpenRouter API Key <span className="text-primary">* (Requis)</span>
-                  </label>
-                  <input
-                    type="password"
-                    value={localSettings.apiKeys.openrouter || ''}
-                    onChange={(e) => handleApiKeyChange('openrouter', e.target.value)}
-                    placeholder="sk-or-v1-..."
-                    className="w-full px-4 py-2 bg-background border border-input rounded-md text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Obtenez votre clé sur <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">openrouter.ai/keys</a> •
-                    Donne accès à tous les modèles (Claude, GPT-4, Gemini, Llama, Mistral, etc.)
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-foreground mb-2">
-                    ZeroGPT API Key <span className="text-muted-foreground text-xs">(optionnel)</span>
-                  </label>
-                  <input
-                    type="password"
-                    value={localSettings.apiKeys.zerogpt || ''}
-                    onChange={(e) => handleApiKeyChange('zerogpt', e.target.value)}
-                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    className="w-full px-4 py-2 bg-background border border-input rounded-md text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Pour la détection AI externe (sinon analyse interne uniquement)
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Models Tab */}
-          {activeTab === 'models' && (
-            <div className="space-y-6">
-              <div className="bg-primary/10 border border-primary/30 rounded-lg p-4 text-sm text-foreground">
-                <strong>🎯 Workflow Multi-Modèles :</strong> Assignez différents modèles LLM pour chaque étape.
-                <br/>• <strong>Générateur</strong> : Crée le texte initial
-                <br/>• <strong>Raffineur</strong> : Paraphrase et humanise le texte
-                <br/>• <strong>Analyseur</strong> : Analyse stylistique (perplexité, burstiness)
-              </div>
-
-              <div className="bg-secondary/10 border border-secondary/30 rounded-lg p-4 text-sm text-foreground">
-                <strong>🔍 Détection IA (ZeroGPT) :</strong> ZeroGPT est utilisé <strong>automatiquement</strong> après chaque itération
-                pour détecter si le texte est encore identifiable comme IA. Activez la clé ZeroGPT dans l'onglet "Clés API"
-                pour déclencher la boucle agentique d'amélioration (~$0.01/analyse).
-                <br/><strong>Sans ZeroGPT</strong>, seule l'analyse stylistique interne est utilisée.
-              </div>
-
-              {/* Templates Section */}
-              <div>
-                <h3 className="font-bold text-foreground mb-3 flex items-center gap-2">
-                  <ZapIcon className="w-5 h-5 text-secondary" />
-                  Templates de Configuration
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {CONFIG_TEMPLATES.map(template => (
-                    <button
-                      key={template.id}
-                      onClick={() => handleApplyTemplate(template.id)}
-                      className="text-left p-4 border border-border rounded-lg hover:bg-muted/30 hover:border-primary/50 transition-all group"
-                    >
-                      <div className="flex items-start gap-3">
-                        <span className="text-3xl">{template.icon}</span>
-                        <div className="flex-1">
-                          <h4 className="font-bold text-foreground group-hover:text-primary transition-colors">
-                            {template.name}
-                          </h4>
-                          <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
-                          <div className="flex gap-3 mt-2 text-[10px] text-muted-foreground">
-                            <span>💵 ~${template.estimatedCostPer1kWords.toFixed(3)}/1k mots</span>
-                            <span>⏱️ {template.estimatedSpeed}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {(['generator', 'refiner', 'analyzer'] as WorkflowRole[]).map(role => {
-                const assignment = getAssignmentForRole(role);
-                const roleLabels = {
-                  generator: '🎨 Générateur (Rédaction initiale)',
-                  refiner: '✨ Raffineur (Optimisation itérative)',
-                  analyzer: '🔍 Analyseur (Détection & Scoring)'
-                };
-
-                return (
-                  <div key={role} className="border border-border rounded-lg p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-bold text-foreground">{roleLabels[role]}</h3>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={assignment?.enabled ?? true}
-                          onChange={(e) => handleModelAssignmentChange(role, 'enabled', e.target.checked)}
-                          className="w-4 h-4"
+        <div className="p-6 overflow-y-auto space-y-6">
+            
+            {/* API KEYS SECTION */}
+            <section className="space-y-4">
+                <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider border-b border-border pb-2">Clés API (Privées)</h3>
+                
+                <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Clé API Google Gemini</label>
+                    <div className="relative">
+                        <input 
+                            type={showKey['google'] ? "text" : "password"}
+                            value={formData.googleApiKey}
+                            onChange={(e) => handleChange('googleApiKey', e.target.value)}
+                            className="w-full bg-input border border-border rounded-md p-2.5 text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none pr-10"
+                            placeholder="AIzaSy..."
                         />
-                        <span className="text-sm text-muted-foreground">Actif</span>
-                      </label>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-foreground mb-1">Modèle</label>
-                      <select
-                        value={assignment?.model.id || POPULAR_OPENROUTER_MODELS[0].id}
-                        onChange={(e) => handleModelAssignmentChange(role, 'model', e.target.value)}
-                        disabled={!assignment?.enabled}
-                        className="w-full px-3 py-2 bg-background border border-input rounded-md text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                      >
-                        <optgroup label="OpenRouter - Anthropic">
-                          {POPULAR_OPENROUTER_MODELS.filter(m => m.id.startsWith('anthropic')).map(model => (
-                            <option key={model.id} value={model.id}>
-                              {model.name} {model.costPer1kTokens && `($${model.costPer1kTokens}/1k)`}
-                            </option>
-                          ))}
-                        </optgroup>
-                        <optgroup label="OpenRouter - OpenAI">
-                          {POPULAR_OPENROUTER_MODELS.filter(m => m.id.startsWith('openai')).map(model => (
-                            <option key={model.id} value={model.id}>
-                              {model.name} {model.costPer1kTokens && `($${model.costPer1kTokens}/1k)`}
-                            </option>
-                          ))}
-                        </optgroup>
-                        <optgroup label="OpenRouter - Autres (Google, Meta, Mistral, Qwen, GLM, Kimi...)">
-                          {POPULAR_OPENROUTER_MODELS.filter(m => !m.id.startsWith('anthropic') && !m.id.startsWith('openai')).map(model => (
-                            <option key={model.id} value={model.id}>
-                              {model.name} {model.costPer1kTokens && `($${model.costPer1kTokens}/1k)`}
-                            </option>
-                          ))}
-                        </optgroup>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-foreground mb-1">
-                        Température (Créativité)
-                      </label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="2"
-                        step="0.1"
-                        value={assignment?.temperature ?? (role === 'analyzer' ? 0.1 : 1.0)}
-                        onChange={(e) => handleModelAssignmentChange(role, 'temperature', parseFloat(e.target.value))}
-                        disabled={!assignment?.enabled}
-                        className="w-full"
-                      />
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Précis (0.0)</span>
-                        <span className="font-bold">{assignment?.temperature ?? (role === 'analyzer' ? 0.1 : 1.0)}</span>
-                        <span>Créatif (2.0)</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Prompts Tab */}
-          {activeTab === 'prompts' && (
-            <div className="space-y-6">
-              <div className="bg-secondary/10 border border-secondary/30 rounded-lg p-4 text-sm text-foreground">
-                <strong>✍️ Personnalisation :</strong> Modifiez les instructions système pour chaque étape.
-                Les placeholders <code className="bg-background px-1 rounded">{`{STYLOMETRIC_PROFILE}`}</code> et <code className="bg-background px-1 rounded">{`{STYLE_CONTEXT}`}</code> seront automatiquement remplacés.
-              </div>
-
-              {(['generation', 'refinement', 'analysis'] as const).map(promptType => {
-                const promptLabels = {
-                  generation: '🎨 Prompt de Génération',
-                  refinement: '✨ Prompt de Raffinement',
-                  analysis: '🔍 Prompt d\'Analyse'
-                };
-
-                const isExpanded = expandedPrompt === promptType;
-
-                return (
-                  <div key={promptType} className="border border-border rounded-lg overflow-hidden">
-                    <button
-                      onClick={() => setExpandedPrompt(isExpanded ? null : promptType)}
-                      className="w-full flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/40 transition-colors"
-                    >
-                      <span className="font-bold text-foreground">{promptLabels[promptType]}</span>
-                      <ChevronDownIcon
-                        className={`w-5 h-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                      />
-                    </button>
-
-                    {isExpanded && (
-                      <div className="p-4 space-y-3">
-                        <textarea
-                          value={localSettings.defaultPrompts[promptType]}
-                          onChange={(e) => handlePromptChange(promptType, e.target.value)}
-                          rows={12}
-                          className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-ring resize-y"
-                        />
-                        <button
-                          onClick={() => resetPromptToDefault(promptType)}
-                          className="text-xs text-muted-foreground hover:text-primary underline"
+                        <button 
+                            onClick={() => toggleKeyVisibility('google')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                         >
-                          ↻ Réinitialiser au prompt par défaut
+                            {showKey['google'] ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" /><path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 8.201 1.875 10.336 6.59.335.753.335 1.572 0 2.324A10.004 10.004 0 0110 17c-4.257 0-8.201-1.875-10.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>
+                            ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M3.28 2.22a.75.75 0 00-1.06 1.06l14.5 14.5a.75.75 0 101.06-1.06l-1.745-1.745a10.029 10.029 0 003.3-5.386 1.651 1.651 0 000-1.186A10.004 10.004 0 0011.17 3.033l-7.89-7.89zm4.242 4.242a4 4 0 015.656 5.656l-5.656-5.656z" clipRule="evenodd" /><path d="M13.17 13.17l-1.72-1.72a2 2 0 10-2.828-2.828l-1.72-1.72A3.992 3.992 0 0110 6a4 4 0 014 4c0 .36-.053.708-.152 1.036.096.046.195.09.294.134H14v2h.17z" /></svg>
+                            )}
                         </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">Utilisée pour la génération, la paraphrase et l'analyse stylométrique.</p>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Clé API ZeroGPT (Détection)</label>
+                    <div className="relative">
+                        <input 
+                            type={showKey['zero'] ? "text" : "password"}
+                            value={formData.zeroGptApiKey}
+                            onChange={(e) => handleChange('zeroGptApiKey', e.target.value)}
+                            className="w-full bg-input border border-border rounded-md p-2.5 text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none pr-10"
+                            placeholder="ba51f..."
+                        />
+                         <button 
+                            onClick={() => toggleKeyVisibility('zero')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        >
+                             {showKey['zero'] ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" /><path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 8.201 1.875 10.336 6.59.335.753.335 1.572 0 2.324A10.004 10.004 0 0110 17c-4.257 0-8.201-1.875-10.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>
+                            ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M3.28 2.22a.75.75 0 00-1.06 1.06l14.5 14.5a.75.75 0 101.06-1.06l-1.745-1.745a10.029 10.029 0 003.3-5.386 1.651 1.651 0 000-1.186A10.004 10.004 0 0011.17 3.033l-7.89-7.89zm4.242 4.242a4 4 0 015.656 5.656l-5.656-5.656z" clipRule="evenodd" /><path d="M13.17 13.17l-1.72-1.72a2 2 0 10-2.828-2.828l-1.72-1.72A3.992 3.992 0 0110 6a4 4 0 014 4c0 .36-.053.708-.152 1.036.096.046.195.09.294.134H14v2h.17z" /></svg>
+                            )}
+                        </button>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">La clé ZeroGPT sert de juge externe pour valider l'humanisation.</p>
+                </div>
+            </section>
+
+            {/* MODEL CONFIG SECTION */}
+            <section className="space-y-4">
+                <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider border-b border-border pb-2">Configuration IA</h3>
+                
+                <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Modèle de Traitement</label>
+                    <select 
+                        value={formData.selectedModel}
+                        onChange={(e) => handleChange('selectedModel', e.target.value as ModelId)}
+                        className="w-full bg-input border border-border rounded-md p-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
+                    >
+                        <option value="gemini-2.5-pro">Gemini 2.5 Pro (Recommandé - Haute Qualité)</option>
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash (Rapide)</option>
+                    </select>
+                </div>
+
+                <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                        <label className="text-sm font-medium text-foreground">Prompt Système (Instructions Mères)</label>
+                        <button 
+                            onClick={() => handleChange('systemPromptOverride', DEFAULT_SYSTEM_PROMPT)}
+                            className="text-xs text-primary hover:underline"
+                        >
+                            Restaurer défaut
+                        </button>
+                    </div>
+                    <textarea 
+                        value={formData.systemPromptOverride}
+                        onChange={(e) => handleChange('systemPromptOverride', e.target.value)}
+                        className="w-full h-40 bg-input border border-border rounded-md p-3 text-xs font-mono leading-relaxed focus:ring-2 focus:ring-primary outline-none resize-none"
+                        placeholder="Définissez ici les instructions de base de l'IA..."
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                        Ce prompt définit la personnalité de l'IA avant d'appliquer les styles. Soyez précis sur le ton et les interdictions.
+                    </p>
+                </div>
+            </section>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-6 border-t border-border bg-muted/10">
-          <button
-            onClick={onClose}
-            className="px-6 py-2 rounded-md border border-border text-foreground hover:bg-muted transition-colors"
-          >
-            Annuler
-          </button>
-          <button
-            onClick={handleSave}
-            className="px-6 py-2 rounded-md bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors"
-          >
-            💾 Enregistrer
-          </button>
+        <div className="p-4 border-t border-border bg-muted/20 flex justify-end gap-3">
+            <button 
+                onClick={onClose}
+                className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+                Annuler
+            </button>
+            <button 
+                onClick={handleSave}
+                className="px-6 py-2 bg-primary text-primary-foreground text-sm font-bold rounded-md hover:bg-primary/90 flex items-center"
+            >
+                <ShieldCheckIcon className="w-4 h-4 mr-2" />
+                Sauvegarder les paramètres
+            </button>
         </div>
+
       </div>
     </div>
   );
