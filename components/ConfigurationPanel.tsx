@@ -1,20 +1,17 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { IterationStepConfig } from '../types';
-import CogIcon from './icons/CogIcon';
-import ChevronDoubleRightIcon from './icons/ChevronDoubleRightIcon';
-import ChevronDoubleLeftIcon from './icons/ChevronDoubleLeftIcon';
 import PencilIcon from './icons/PencilIcon';
 import BeakerIcon from './icons/BeakerIcon';
 import FingerPrintIcon from './icons/FingerPrintIcon';
 import SparklesIcon from './icons/SparklesIcon';
 import CheckBadgeIcon from './icons/CheckBadgeIcon';
+import CogIcon from './icons/CogIcon';
+import { useLanguage } from '../context/LanguageContext';
 
 interface ConfigurationPanelProps {
   workflow: IterationStepConfig[];
   setWorkflow: React.Dispatch<React.SetStateAction<IterationStepConfig[]>>;
-  isOpen: boolean;
-  onToggle: () => void;
 }
 
 const AgentIcon: React.FC<{ index: number; className?: string }> = ({ index, className }) => {
@@ -24,133 +21,139 @@ const AgentIcon: React.FC<{ index: number; className?: string }> = ({ index, cla
     case 2: return <FingerPrintIcon className={className} />;
     case 3: return <SparklesIcon className={className} />;
     case 4: return <CheckBadgeIcon className={className} />;
-    default: return <CogIcon className={className} />;
+    default: return null;
   }
 };
 
-const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({ workflow, setWorkflow, isOpen, onToggle }) => {
-  
-  const updateStep = (id: string, updates: Partial<IterationStepConfig>) => {
-    setWorkflow(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+const AVAILABLE_MODELS = [
+  'anthropic/claude-3.5-sonnet',
+  'openai/gpt-4o',
+  'google/gemini-2.0-flash-exp',
+  'meta-llama/llama-3.1-405b',
+  'anthropic/claude-3-opus'
+];
+
+const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({ workflow, setWorkflow }) => {
+  const { t, isRTL } = useLanguage();
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const toggleAgent = (id: string) => {
+    setWorkflow(prev => prev.map(step => 
+      step.id === id ? { ...step, active: !step.active } : step
+    ));
   };
 
+  const updateAgent = (id: string, updates: Partial<IterationStepConfig>) => {
+    setWorkflow(prev => prev.map(step => 
+      step.id === id ? { ...step, ...updates } : step
+    ));
+  };
+
+  const getStatusInfo = (step: IterationStepConfig, index: number) => {
+    if (!step.active) return { label: "BYPASSED", class: 'bg-white/5 text-muted-foreground/30 border-white/5' };
+    if (index === 0 || index === 1) return { label: t('completed'), class: 'bg-green-500/20 text-green-400 border-green-500/30' };
+    if (index === 2) return { label: t('processing'), class: 'bg-primary/20 text-primary border-primary/30 animate-pulse' };
+    return { label: t('pending'), class: 'bg-white/5 text-muted-foreground border-white/10' };
+  };
+  
   return (
-    <div className={`relative bg-card/60 backdrop-blur-xl rounded-3xl border border-border h-full transition-all duration-400 ease-in-out shadow-2xl flex flex-col ${isOpen ? 'w-full' : 'w-14'}`}>
-      {/* Toggle Button */}
-      <button 
-        onClick={onToggle} 
-        className={`absolute top-6 z-20 w-8 h-8 rounded-full bg-primary text-white shadow-lg flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${
-          isOpen ? '-left-4' : 'left-1/2 -translate-x-1/2'
-        }`}
-      >
-        {isOpen ? <ChevronDoubleRightIcon className="w-5 h-5" /> : <ChevronDoubleLeftIcon className="w-5 h-5" />}
-      </button>
+    <div className="flex flex-col h-full overflow-hidden p-6 animate-fade-in">
+      <div className="mb-6">
+        <h2 className="text-2xl font-black text-white tracking-tighter uppercase italic">{t('multiAgentTitle')}</h2>
+        <p className="text-[11px] text-muted-foreground/60 mt-2 uppercase tracking-widest font-black">{t('protocol')}</p>
+      </div>
 
-      {/* Closed State Icons */}
-      {!isOpen && (
-        <div className="flex flex-col items-center pt-20 gap-6 overflow-y-auto scrollbar-hide">
-          {workflow.map((step, index) => (
-            <div key={step.id} className="group relative" title={step.agentName}>
-               <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 ${
-                 step.active 
-                   ? 'bg-primary/20 text-primary shadow-[0_0_10px_rgba(var(--primary),0.1)]' 
-                   : 'text-muted-foreground/40 grayscale hover:grayscale-0 hover:text-muted-foreground'
-               }`}>
-                  <AgentIcon index={index} className="w-5 h-5" />
-               </div>
-               {step.active && (
-                  <div className="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full border border-background shadow-[0_0_5px_rgba(var(--primary),0.5)]"></div>
-               )}
-            </div>
-          ))}
-          <div className="mt-4 w-px h-12 bg-gradient-to-b from-border to-transparent"></div>
-          <div className="text-[9px] font-black uppercase vertical-text tracking-[0.2em] text-muted-foreground/40 pb-8">Agents Workflow</div>
-        </div>
-      )}
-
-      {/* Open Content */}
-      <div className={`flex flex-col h-full overflow-hidden transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 invisible absolute'}`}>
-        <div className="p-6 border-b border-border bg-primary/5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <CogIcon className="w-5 h-5 text-primary animate-spin-slow" />
-              <h2 className="text-lg font-black ml-3 tracking-tighter uppercase italic text-foreground">Agents Z12</h2>
-            </div>
-            <div className="px-2 py-0.5 bg-primary rounded text-[10px] font-black text-white shadow-sm">
-              {workflow.filter(s => s.active).length} / 5
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-grow overflow-y-auto p-4 space-y-4 custom-scrollbar">
-          {workflow.map((step, index) => (
-            <div key={step.id} className={`p-4 rounded-2xl border transition-all duration-300 relative group ${
-              step.active 
-                ? 'border-primary/50 bg-card/50 shadow-xl' 
-                : 'border-border bg-muted/20 opacity-40 grayscale hover:opacity-60'
-            }`}>
-              
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${step.active ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-muted text-muted-foreground'}`}>
-                      <AgentIcon index={index} className="w-5 h-5" />
-                   </div>
-                   <input 
-                      type="text"
-                      value={step.agentName}
-                      onChange={(e) => updateStep(step.id, { agentName: e.target.value })}
-                      className={`bg-transparent font-bold text-sm focus:outline-none border-b border-transparent focus:border-primary/30 ${step.active ? 'text-foreground' : 'text-muted-foreground'}`}
-                      placeholder="Agent"
-                    />
-                </div>
-                
-                {/* Switch Toggle */}
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={step.active} 
-                    onChange={(e) => updateStep(step.id, { active: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-10 h-5 bg-muted rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary shadow-inner"></div>
-                </label>
-              </div>
-
-              <div className={`space-y-4 transition-all duration-300 ${step.active ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 h-0 overflow-hidden'}`}>
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black text-primary/70 uppercase tracking-widest block">Modèle Cognitif</label>
-                  <select 
-                    value={step.model}
-                    onChange={(e) => updateStep(step.id, { model: e.target.value })}
-                    className="w-full bg-input border border-border/50 rounded-xl p-2 text-xs text-foreground focus:ring-2 focus:ring-primary/20 outline-none cursor-pointer"
-                  >
-                    <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-                    <option value="openai/gpt-4o">GPT-4o</option>
-                    <option value="meta-llama/llama-3.1-405b">Llama 3.1 405B</option>
-                    <option value="google/gemini-2.0-flash-exp">Gemini 2.0 Flash</option>
-                    <option value="mistralai/mistral-large">Mistral Large 2</option>
-                    <option value="anthropic/claude-3-opus">Claude 3 Opus</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black text-primary/70 uppercase tracking-widest block">Instructions Système</label>
-                  <textarea 
-                    value={step.systemPrompt}
-                    onChange={(e) => updateStep(step.id, { systemPrompt: e.target.value })}
-                    className="w-full h-24 bg-black/20 border border-border/50 rounded-xl p-3 text-[10px] font-mono leading-relaxed resize-none focus:ring-2 focus:ring-primary/20 outline-none transition-all placeholder:text-muted-foreground/30 scrollbar-hide"
-                    placeholder="Directives pour cet agent..."
-                  />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+      <div className="space-y-4 relative flex-grow overflow-y-auto custom-scrollbar pr-2 pb-8">
+        <div className={`absolute ${isRTL ? 'right-6' : 'left-6'} top-8 bottom-8 w-px bg-gradient-to-b from-primary via-primary/50 to-transparent opacity-30`}></div>
         
-        <div className="p-4 bg-muted/10 border-t border-border">
-           <p className="text-[9px] text-muted-foreground font-medium text-center italic">
-             La séquence s'exécute de haut en bas.
-           </p>
+        {workflow.map((step, index) => {
+          const status = getStatusInfo(step, index);
+          const isEditing = editingId === step.id;
+
+          return (
+            <div key={step.id} className={`relative flex items-start gap-4 transition-all duration-300 ${!step.active ? 'opacity-40' : 'opacity-100'}`}>
+              
+              {/* Timeline Node */}
+              <div className={`z-10 w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border transition-all ${
+                  step.active ? 'bg-primary/10 border-primary text-primary shadow-lg shadow-primary/10' : 'bg-white/5 border-white/10 text-muted-foreground/20'
+              }`}>
+                <AgentIcon index={index} className="w-6 h-6" />
+              </div>
+
+              {/* Agent Card */}
+              <div className={`flex-grow p-4 rounded-2xl border transition-all ${
+                isEditing ? 'bg-primary/5 border-primary/40 shadow-2xl scale-[1.02]' : 'bg-white/5 border-white/5 hover:border-white/10'
+              }`}>
+                <div className="flex justify-between items-center mb-2">
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      checked={step.active} 
+                      onChange={() => toggleAgent(step.id)}
+                      className="w-4 h-4 rounded bg-black/40 border-white/10 text-primary focus:ring-primary/20 transition-all cursor-pointer"
+                    />
+                    <h3 className="text-xs font-black uppercase tracking-widest text-white">{t(step.agentName as any)}</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border tracking-widest ${status.class}`}>
+                      {status.label}
+                    </span>
+                    <button 
+                      onClick={() => setEditingId(isEditing ? null : step.id)}
+                      className={`p-1.5 rounded-lg transition-all ${isEditing ? 'bg-primary text-white' : 'text-muted-foreground hover:bg-white/5 hover:text-white'}`}
+                    >
+                      <CogIcon className={`w-3.5 h-3.5 ${isEditing ? 'animate-spin-slow' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {isEditing ? (
+                  <div className="space-y-4 mt-4 animate-fade-in">
+                    <div>
+                      <label className="block text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-2">Model Engine</label>
+                      <select 
+                        value={step.model}
+                        onChange={(e) => updateAgent(step.id, { model: e.target.value })}
+                        className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-[10px] text-white outline-none focus:border-primary/50 transition-all"
+                      >
+                        {AVAILABLE_MODELS.map(m => (
+                          <option key={m} value={m}>{m.split('/').pop()}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-2">System Instructions</label>
+                      <textarea 
+                        value={step.systemPrompt}
+                        onChange={(e) => updateAgent(step.id, { systemPrompt: e.target.value })}
+                        rows={3}
+                        className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-[10px] text-white/70 outline-none focus:border-primary/50 transition-all resize-none custom-scrollbar"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-muted-foreground/60 leading-relaxed italic">
+                    {step.model.split('/').pop()} active
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer minimaliste avec boutons d'action du workflow */}
+      <div className="mt-auto border-t border-white/5 pt-6 bg-card/40 -mx-6 px-6 -mb-6 pb-6">
+        <div className="flex justify-between items-end mb-2">
+            <div>
+                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground">{t('totalProgress')}</span>
+                <h4 className="text-sm font-black text-white italic">{t('humanizing')}</h4>
+            </div>
+            <span className="text-2xl font-black text-primary italic">68%</span>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+            <button className="py-3 bg-white/5 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5">{t('viewLogs')}</button>
+            <button className="py-3 bg-destructive/10 text-destructive text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-destructive/20">{t('stopGen')}</button>
         </div>
       </div>
       
@@ -158,10 +161,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({ workflow, setWo
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: oklch(var(--primary) / 0.1); border-radius: 20px; }
-        .vertical-text { writing-mode: vertical-rl; transform: rotate(180deg); }
-        .animate-spin-slow { animation: spin 10s linear infinite; }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .animate-spin-slow { animation: spin 4s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
     </div>

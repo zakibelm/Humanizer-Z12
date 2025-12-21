@@ -5,9 +5,9 @@ interface EditableTextAreaProps {
   text: string;
   flaggedSentences: string[];
   onTextChange: (newText: string) => void;
+  placeholder?: string;
 }
 
-// Helper to generate HTML. Keep it outside the component for purity.
 const createMarkup = (text: string, flaggedSentences: string[]): string => {
     if (!text) return '';
     let processedText = text;
@@ -15,7 +15,6 @@ const createMarkup = (text: string, flaggedSentences: string[]): string => {
     if (flaggedSentences && flaggedSentences.length > 0) {
         const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         
-        // Sanitize sentences: sort by length, ensure uniqueness, trim, and filter out any empty strings.
         const uniqueSentences = [...new Set(flaggedSentences)]
             .map(s => s.trim())
             .filter(Boolean)
@@ -26,48 +25,39 @@ const createMarkup = (text: string, flaggedSentences: string[]): string => {
             processedText = processedText.replace(regex, (match) => {
                 const trimmedMatch = match.trim();
                 const level = uniqueSentences.findIndex(s => s.trim() === trimmedMatch);
-                const highlightLevel = level !== -1 ? level % 3 : 2;
-                const className = `highlight highlight-level-${highlightLevel}`;
-                return `<span class="${className}" title="Phrase à risque détectée">${match}</span>`;
+                const highlightLevel = level !== -1 ? level % 2 : 1;
+                const className = highlightLevel === 0 ? 'highlight-risk' : 'highlight-moderate';
+                return `<span class="${className}" title="Détail du risque IA">${match}</span>`;
             });
         }
     }
     return processedText.replace(/\n/g, '<br>');
 };
 
-
 const EditableTextArea: React.FC<EditableTextAreaProps> = ({
   text,
   flaggedSentences,
   onTextChange,
+  placeholder = "Commencez à rédiger..."
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
-  // This ref tracks whether the last update was from user input, to break update cycles.
   const isInternalUpdate = useRef(false);
 
   const markup = useMemo(() => createMarkup(text, flaggedSentences), [text, flaggedSentences]);
 
   useEffect(() => {
-    // If the flag is set, it means the user just typed. We don't want to
-    // overwrite their input and lose the cursor position. Reset the flag and bail.
     if (isInternalUpdate.current) {
       isInternalUpdate.current = false;
       return;
     }
-
-    // If we're here, the change came from outside (e.g., AI response).
-    // Update the DOM if it's out of sync with our calculated markup.
     if (contentRef.current && contentRef.current.innerHTML !== markup) {
       contentRef.current.innerHTML = markup;
     }
-  }, [markup]); // This effect ONLY depends on the calculated markup.
+  }, [markup]);
 
   const handleInput = () => {
     if (contentRef.current) {
-      // Set the flag to true BEFORE calling onTextChange.
-      // This signals that the subsequent re-render is caused by user input.
       isInternalUpdate.current = true;
-      // innerText normalizes line breaks to '\n', which is what our state should use.
       onTextChange(contentRef.current.innerText);
     }
   };
@@ -77,34 +67,30 @@ const EditableTextArea: React.FC<EditableTextAreaProps> = ({
     const plainText = e.clipboardData.getData('text/plain');
     const selection = window.getSelection();
     if (!selection?.rangeCount) return;
-
     selection.deleteFromDocument();
     selection.getRangeAt(0).insertNode(document.createTextNode(plainText));
     selection.collapseToEnd();
-    
-    // Manually trigger handleInput to update the state after pasting.
     handleInput();
   };
 
   return (
-    <>
+    <div className="relative group">
       <style>{`
-        .highlight {
-            padding: 1px 0;
-            border-radius: 3px;
+        .highlight-risk {
+            color: oklch(0.6368 0.2078 25.3313);
+            text-decoration: underline wavy oklch(0.6368 0.2078 25.3313 / 0.5);
+            text-underline-offset: 4px;
         }
-        .highlight-level-0 {
-            background-color: oklch(0.6368 0.2078 25.3313 / 0.3);
-            border-bottom: 2px solid oklch(0.6368 0.2078 25.3313 / 0.75);
+        .highlight-moderate {
+            color: oklch(0.81 0.18 86.32);
+            text-decoration: underline wavy oklch(0.81 0.18 86.32 / 0.5);
+            text-underline-offset: 4px;
         }
-        .highlight-level-1 {
-            background-color: oklch(0.81 0.18 86.32 / 0.3);
-            border-bottom: 2px solid oklch(0.81 0.18 86.32 / 0.75);
-        }
-        .highlight-level-2,
-        .highlight-level-3 {
-            background-color: oklch(0.89 0.16 99.1 / 0.3);
-            border-bottom: 2px solid oklch(0.89 0.16 99.1 / 0.75);
+        [contenteditable]:empty:before {
+            content: attr(data-placeholder);
+            color: rgba(255,255,255,0.1);
+            pointer-events: none;
+            display: block;
         }
       `}</style>
       <div
@@ -113,11 +99,11 @@ const EditableTextArea: React.FC<EditableTextAreaProps> = ({
         onPaste={handlePaste}
         contentEditable
         suppressContentEditableWarning={true}
-        className="w-full flex-grow p-3 bg-black/50 border border-input rounded-md overflow-y-auto whitespace-pre-wrap font-serif focus:ring-2 focus:ring-ring focus:border-primary text-foreground shadow-inner"
-        // We set the content initially. `useEffect` handles all subsequent updates.
+        data-placeholder={placeholder}
+        className="w-full min-h-[400px] outline-none text-xl md:text-2xl font-serif text-white/80 leading-relaxed whitespace-pre-wrap selection:bg-primary/30"
         dangerouslySetInnerHTML={{ __html: markup }}
       />
-    </>
+    </div>
   );
 };
 
