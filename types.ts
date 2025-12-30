@@ -5,7 +5,7 @@ export interface Document {
   content: string;
 }
 
-export type StyleCategoryId = 'user' | 'journalistic' | 'academic' | 'conversational' | 'creative';
+export type StyleCategoryId = 'user' | 'journalistic' | 'academic' | 'conversational' | 'creative' | 'marketing';
 
 export interface StyleCategory {
   id: StyleCategoryId;
@@ -15,12 +15,21 @@ export interface StyleCategory {
   keywords: string[];
 }
 
+export interface WritingConfig {
+  temperature: number;
+  formality: number;
+  professionalism: 'startup' | 'corporate' | 'academic' | 'creative' | 'friendly' | 'marketing';
+  empathy: number;
+  humor: number;
+}
+
 export interface StyleDistribution {
   user: number;
   journalistic: number;
   academic: number;
   conversational: number;
   creative: number;
+  marketing: number;
 }
 
 export interface StylometricProfile {
@@ -32,13 +41,11 @@ export interface StylometricProfile {
   fleschReadingEase: number;
 }
 
-// Add StylometricMatch interface
 export interface StylometricMatch {
   similarity: number;
   deviations: string[];
 }
 
-// Add ZeroGptResult interface
 export interface ZeroGptResult {
   isReal: boolean;
   fakePercentage: number;
@@ -55,7 +62,6 @@ export interface AnalysisResult {
   perplexity: { score: number; analysis: string; };
   burstiness: { score: number; analysis: string; };
   flaggedSentences: string[];
-  // Add optional zeroGpt and stylometricMatch properties
   zeroGpt?: ZeroGptResult;
   stylometricMatch?: StylometricMatch;
 }
@@ -80,12 +86,10 @@ export interface GlobalSettings {
   zeroGptApiKey: string;
 }
 
-// Add AgenticConfig interface
 export interface AgenticConfig {
   enabled: boolean;
   targetScore: number;
   maxIterations: number;
 }
 
-// Add ModelId type
 export type ModelId = string;

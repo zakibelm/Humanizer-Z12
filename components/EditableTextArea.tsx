@@ -17,48 +17,54 @@ const createMarkup = (text: string, flaggedSentences: string[]): string => {
         
         const uniqueSentences = [...new Set(flaggedSentences)]
             .map(s => s.trim())
-            .filter(Boolean)
+            .filter(s => s.length > 5) // Éviter de surligner des bouts de phrases trop courts
             .sort((a, b) => b.length - a.length);
 
         if (uniqueSentences.length > 0) {
-            const regex = new RegExp(`(${uniqueSentences.map(escapeRegex).join('|')})`, 'g');
-            processedText = processedText.replace(regex, (match) => {
-                const trimmedMatch = match.trim();
-                const level = uniqueSentences.findIndex(s => s.trim() === trimmedMatch);
-                const highlightLevel = level !== -1 ? level % 2 : 1;
-                const className = highlightLevel === 0 ? 'highlight-risk' : 'highlight-moderate';
-                return `<span class="${className}" title="Détail du risque IA">${match}</span>`;
-            });
+            try {
+                const regex = new RegExp(`(${uniqueSentences.map(escapeRegex).join('|')})`, 'g');
+                processedText = processedText.replace(regex, (match) => {
+                    const trimmedMatch = match.trim();
+                    const level = uniqueSentences.findIndex(s => s.trim() === trimmedMatch);
+                    const highlightLevel = level !== -1 ? level % 2 : 0;
+                    const className = highlightLevel === 0 ? 'highlight-risk' : 'highlight-moderate';
+                    return `<span class="${className}">${match}</span>`;
+                });
+            } catch (e) {
+                console.error("Regex highlight error:", e);
+            }
         }
     }
-    return processedText.replace(/\n/g, '<br>');
+    // Remplacement des sauts de ligne par <br> pour le rendu HTML
+    return processedText.split('\n').join('<br>');
 };
 
 const EditableTextArea: React.FC<EditableTextAreaProps> = ({
   text,
   flaggedSentences,
   onTextChange,
-  placeholder = "Commencez à rédiger..."
+  placeholder = "L'Artifact apparaîtra ici..."
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
-  const isInternalUpdate = useRef(false);
+  const lastTextRef = useRef(text);
 
   const markup = useMemo(() => createMarkup(text, flaggedSentences), [text, flaggedSentences]);
 
   useEffect(() => {
-    if (isInternalUpdate.current) {
-      isInternalUpdate.current = false;
-      return;
+    // On ne met à jour le contenu DOM manuellement QUE si le texte a changé 
+    // et qu'il ne provient pas d'une saisie utilisateur directe (pour garder le focus/curseur)
+    if (contentRef.current && text !== lastTextRef.current) {
+        // Si c'est un chargement IA ou un changement externe
+        contentRef.current.innerHTML = markup;
+        lastTextRef.current = text;
     }
-    if (contentRef.current && contentRef.current.innerHTML !== markup) {
-      contentRef.current.innerHTML = markup;
-    }
-  }, [markup]);
+  }, [markup, text]);
 
   const handleInput = () => {
     if (contentRef.current) {
-      isInternalUpdate.current = true;
-      onTextChange(contentRef.current.innerText);
+      const newText = contentRef.current.innerText;
+      lastTextRef.current = newText;
+      onTextChange(newText);
     }
   };
 
@@ -74,23 +80,34 @@ const EditableTextArea: React.FC<EditableTextAreaProps> = ({
   };
 
   return (
-    <div className="relative group">
+    <div className="relative group h-full">
       <style>{`
         .highlight-risk {
-            color: oklch(0.6368 0.2078 25.3313);
-            text-decoration: underline wavy oklch(0.6368 0.2078 25.3313 / 0.5);
+            color: #ff4d4d;
+            background: rgba(255, 77, 77, 0.1);
+            text-decoration: underline wavy #ff4d4d;
             text-underline-offset: 4px;
+            padding: 2px 0;
         }
         .highlight-moderate {
-            color: oklch(0.81 0.18 86.32);
-            text-decoration: underline wavy oklch(0.81 0.18 86.32 / 0.5);
+            color: #ffcc00;
+            background: rgba(255, 204, 0, 0.1);
+            text-decoration: underline wavy #ffcc00;
             text-underline-offset: 4px;
+            padding: 2px 0;
         }
         [contenteditable]:empty:before {
             content: attr(data-placeholder);
             color: rgba(255,255,255,0.1);
             pointer-events: none;
             display: block;
+            font-style: italic;
+        }
+        .custom-editable-area {
+            min-height: 100%;
+            outline: none;
+            white-space: pre-wrap;
+            word-wrap: break-word;
         }
       `}</style>
       <div
@@ -100,8 +117,7 @@ const EditableTextArea: React.FC<EditableTextAreaProps> = ({
         contentEditable
         suppressContentEditableWarning={true}
         data-placeholder={placeholder}
-        className="w-full min-h-[400px] outline-none text-xl md:text-2xl font-serif text-white/80 leading-relaxed whitespace-pre-wrap selection:bg-primary/30"
-        dangerouslySetInnerHTML={{ __html: markup }}
+        className="custom-editable-area w-full font-serif text-lg md:text-xl text-white/90 leading-relaxed selection:bg-primary/30"
       />
     </div>
   );

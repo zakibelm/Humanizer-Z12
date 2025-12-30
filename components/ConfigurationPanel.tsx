@@ -25,12 +25,15 @@ const AgentIcon: React.FC<{ index: number; className?: string }> = ({ index, cla
   }
 };
 
+// Liste officielle OpenRouter STRICTE pour éviter "No endpoints found"
 const AVAILABLE_MODELS = [
+  'google/gemini-2.0-flash-exp:free',
+  'google/gemini-flash-1.5',
+  'google/gemini-pro-1.5',
   'anthropic/claude-3.5-sonnet',
   'openai/gpt-4o',
-  'google/gemini-2.0-flash-exp',
-  'meta-llama/llama-3.1-405b',
-  'anthropic/claude-3-opus'
+  'openai/gpt-4o-mini',
+  'meta-llama/llama-3.1-405b'
 ];
 
 const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({ workflow, setWorkflow }) => {
@@ -117,7 +120,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({ workflow, setWo
                         className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-[10px] text-white outline-none focus:border-primary/50 transition-all"
                       >
                         {AVAILABLE_MODELS.map(m => (
-                          <option key={m} value={m}>{m.split('/').pop()}</option>
+                          <option key={m} value={m}>{m}</option>
                         ))}
                       </select>
                     </div>
@@ -133,7 +136,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({ workflow, setWo
                   </div>
                 ) : (
                   <p className="text-[10px] text-muted-foreground/60 leading-relaxed italic">
-                    {step.model.split('/').pop()} active
+                    {step.model} active
                   </p>
                 )}
               </div>
@@ -142,7 +145,7 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({ workflow, setWo
         })}
       </div>
 
-      {/* Footer minimaliste avec boutons d'action du workflow */}
+      {/* Footer minimaliste */}
       <div className="mt-auto border-t border-white/5 pt-6 bg-card/40 -mx-6 px-6 -mb-6 pb-6">
         <div className="flex justify-between items-end mb-2">
             <div>
@@ -150,10 +153,6 @@ const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({ workflow, setWo
                 <h4 className="text-sm font-black text-white italic">{t('humanizing')}</h4>
             </div>
             <span className="text-2xl font-black text-primary italic">68%</span>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-            <button className="py-3 bg-white/5 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-white/5">{t('viewLogs')}</button>
-            <button className="py-3 bg-destructive/10 text-destructive text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-destructive/20">{t('stopGen')}</button>
         </div>
       </div>
       
